@@ -9,40 +9,6 @@
 
 <div id="parsers-list"></div>
 
-<!-- AI 辅助生成 -->
-<div class="card mt-4">
-  <div class="card-header d-flex justify-content-between align-items-center">
-    <span><i class="bi bi-robot"></i> AI 辅助生成解析器</span>
-    <button class="btn btn-sm btn-outline-secondary" onclick="copyExampleCode()">
-      <i class="bi bi-clipboard"></i> 复制示例代码
-    </button>
-  </div>
-  <div class="card-body">
-    <p class="text-muted small mb-2">
-      将下面的<strong>示例代码</strong>和你的 Webhook <strong>原始数据</strong>一起发给 AI，
-      让它帮你生成定制解析器。
-    </p>
-    {% raw %}
-<pre id="example-code" class="bg-dark text-light p-3 rounded" style="font-size:0.85rem; max-height:400px; overflow:auto;">import json
-
-def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
-    data = json.loads(raw_body)
-
-    return {
-        "title":   data.get("title", ""),
-        "content": data.get("content", ""),
-        "summary": data.get("summary", ""),
-        "url":     data.get("url", ""),
-        "image_url": data.get("image", ""),
-        "route_tags": {"event": data.get("event", "")},
-        "tags":       data,
-    }
-</pre>
-{% endraw %}
-    <div id="copy-toast" class="text-success small mt-1" style="display:none;"><i class="bi bi-check-circle"></i> 已复制到剪贴板</div>
-  </div>
-</div>
-
 <div class="modal fade" id="parserModal" tabindex="-1">
   <div class="modal-dialog"><div class="modal-content">
     <div class="modal-header"><h5 class="modal-title">上传解析器</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
@@ -130,19 +96,6 @@ function saveParserContent() {
     document.getElementById('pv-save-msg').style.display = 'inline';
     setTimeout(function(){ document.getElementById('pv-save-msg').style.display = 'none'; }, 2000);
   });
-}
-function copyExampleCode() {
-  const code = document.getElementById('example-code').innerText;
-  const ta = document.createElement('textarea');
-  ta.value = code;
-  ta.style.position = 'fixed'; ta.style.opacity = '0';
-  document.body.appendChild(ta);
-  ta.select(); ta.setSelectionRange(0, 99999);
-  document.execCommand('copy');
-  document.body.removeChild(ta);
-  const toast = document.getElementById('copy-toast');
-  toast.style.display = 'block';
-  setTimeout(function(){ toast.style.display = 'none'; }, 2000);
 }
 function deleteParser(id) {
   if(!confirm('确定删除此解析器？文件也会被删除。')) return;

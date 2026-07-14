@@ -19,9 +19,9 @@ class TelegramBot(BaseChannel):
     def _api(self, method):
         return f"https://api.telegram.org/bot{self.bot_token}/{method}"
 
-    def send(self, title: str, content: str) -> bool:
+    def send(self, title: str, content: str) -> tuple:
         if not self.bot_token or not self.chat_id:
-            return False
+            return False, "bot_token or chat_id is empty"
         text = f"<b>{title}</b>\n\n{content}"
         try:
             resp = requests.post(self._api("sendMessage"), json={
@@ -29,13 +29,15 @@ class TelegramBot(BaseChannel):
                 "text": text,
                 "parse_mode": "HTML",
             }, timeout=15)
-            ok = resp.json().get("ok", False)
-            if not ok:
-                log.logger.error(f"Telegram send: {resp.json().get('description')}")
-            return ok
+            body = resp.json()
+            if body.get("ok", False):
+                return True, ""
+            errmsg = body.get("description", "unknown error")
+            log.logger.error(f"Telegram send: {errmsg}")
+            return False, errmsg
         except Exception as e:
             log.logger.error(f"Telegram send: {e}")
-            return False
+            return False, str(e)
 
     def test(self) -> bool:
         if not self.bot_token or not self.chat_id:

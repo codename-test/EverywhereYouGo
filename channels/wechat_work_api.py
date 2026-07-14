@@ -37,10 +37,10 @@ class WechatWorkAPI(BaseChannel):
             log.logger.error(f"WechatWorkAPI token failed: {e}")
         return ""
 
-    def send(self, title: str, content: str) -> bool:
+    def send(self, title: str, content: str) -> tuple:
         token = self._get_token()
         if not token:
-            return False
+            return False, "get_token failed"
 
         payload = {
             "touser":   self.user_id,
@@ -56,13 +56,15 @@ class WechatWorkAPI(BaseChannel):
                 json=payload, timeout=15
             )
             data = resp.json()
-            if data.get("errcode") == 0:
-                return True
-            log.logger.error(f"WechatWorkAPI send: {data.get('errmsg')}")
-            return False
+            errcode = data.get("errcode")
+            if errcode == 0:
+                return True, ""
+            errmsg = data.get("errmsg", f"errcode={errcode}")
+            log.logger.error(f"WechatWorkAPI send: {errmsg}")
+            return False, errmsg
         except Exception as e:
             log.logger.error(f"WechatWorkAPI send: {e}")
-            return False
+            return False, str(e)
 
     def test(self) -> bool:
         token = self._get_token()

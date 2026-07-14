@@ -154,7 +154,7 @@ def process_message(source_id, raw_body: bytes, headers: dict, query_params: dic
 
     # 3. 路由匹配
     bindings = db.get_source_channels(source_id)
-    matched = router.match_rules(bindings, msg.get("route_tags", {}))
+    matched = router.match_rules(bindings, msg)
     if not matched:
         log.logger.info(f"[{trace_id}] No matching channels")
         db.update_message(trace_id, status="NO_MATCH")
@@ -231,13 +231,13 @@ def _do_send(trace_id, source_id, src_name, msg, matched):
         try:
             ch_config = json.loads(ch["config"]) if isinstance(ch["config"], str) else ch["config"]
             channel = create_channel(ch_type, ch_config)
-            ok = channel.send(rendered["title"], rendered["content"])
+            ok, err = channel.send(rendered["title"], rendered["content"])
             result["ok"] = ok
             if ok:
                 log.logger.info(f"[{trace_id}] Sent via {ch_name}")
             else:
-                result["error"] = "Send returned False"
-                log.logger.error(f"[{trace_id}] Failed: {ch_name}")
+                result["error"] = err or "Send returned False"
+                log.logger.error(f"[{trace_id}] Failed: {ch_name} — {err}")
                 all_ok = False
         except Exception as e:
             result["error"] = str(e)[:500]
@@ -316,7 +316,7 @@ def flush_queue_for_source(source_id):
         try:
             msg = json.loads(mq["msg_json"])
             bindings = db.get_source_channels(source_id)
-            matched = router.match_rules(bindings, msg.get("route_tags", {}))
+            matched = router.match_rules(bindings, msg)
 
             if not matched:
                 db.update_message_by_id(mq["id"], status="FAILED", error="No matching channels")
@@ -370,7 +370,7 @@ def retry_message(msg_id, mode="original"):
         return False, "No msg_json available"
 
     bindings = db.get_source_channels(rec["source_id"])
-    matched = router.match_rules(bindings, msg.get("route_tags", {}))
+    matched = router.match_rules(bindings, msg)
     if not matched:
         return False, "No matching channels"
 

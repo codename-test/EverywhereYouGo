@@ -50,15 +50,7 @@ def load_parser(filename: str):
 def run_parser(filename: str, raw_body: bytes, headers: dict, query_params: dict) -> dict:
     """
     执行解析器，返回标准消息体 dict。
-    {
-        "title": str,
-        "content": str,
-        "summary": str,
-        "url": str,
-        "image_url": str,
-        "route_tags": {...},
-        "tags": {...}
-    }
+    解析器返回 title/content + 展平的顶层字段。
     异常时 raise，调用方负责捕获。
     """
     mod = load_parser(filename)
@@ -67,14 +59,28 @@ def run_parser(filename: str, raw_body: bytes, headers: dict, query_params: dict
     if not isinstance(result, dict):
         raise TypeError(f"parse() must return dict, got {type(result).__name__}")
 
-    # 保底字段
-    result.setdefault("title", "无标题")
-    result.setdefault("content", "")
-    result.setdefault("summary", "")
-    result.setdefault("url", "")
-    result.setdefault("image_url", "")
-    result.setdefault("route_tags", {})
-    result.setdefault("tags", {})
+    # 保底：至少有一对 KV
+    if not result:
+        result = {"data": "空消息"}
+    
+    # 自动生成 title：找 Name/title/Subject/Event 等常见字段，否则用第一个值
+    if "title" not in result:
+        title_key = None
+        for key in ["Name", "title", "Subject", "Event", "name", "subject", "event"]:
+            for k in result:
+                if k == key or k.lower().endswith(f".{key}".lower()):
+                    title_key = k
+                    break
+            if title_key:
+                break
+        
+        # 优先用找到的字段，否则用第一个非空的值，最后兜底"未命名"
+        if title_key:
+            result["title"] = result[title_key]
+        else:
+            first_value = next((v for v in result.values() if v), "未命名")
+            result["title"] = first_value
+    
     return result
 
 

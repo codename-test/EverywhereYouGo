@@ -7,6 +7,24 @@
   <div class="col-md-3"><div class="card p-3 text-center"><h3>{{ stats.templates }}</h3><small class="text-muted">推送模板</small></div></div>
   <div class="col-md-3"><div class="card p-3 text-center"><h3>{{ stats.messages_today }}</h3><small class="text-muted">今日消息</small></div></div>
 </div>
+<!-- 推送统计 -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3"><div class="card p-3 border-success text-center"><h3 class="text-success">{{ stats.messages_success }}</h3><small class="text-muted">成功推送</small></div></div>
+  <div class="col-md-3"><div class="card p-3 border-danger text-center"><h3 class="text-danger">{{ stats.messages_failed }}</h3><small class="text-muted">失败</small></div></div>
+  <div class="col-md-3"><div class="card p-3 border-warning text-center"><h3 class="text-warning">{{ stats.queue_pending }}</h3><small class="text-muted">待发送</small></div></div>
+  <div class="col-md-3">
+    <div class="card p-3 text-center">
+      {% set total = stats.messages_success + stats.messages_failed %}
+      {% if total > 0 %}
+        {% set rate = (stats.messages_success / total * 100) | round(1) %}
+        <h3>{{ rate }}%</h3>
+      {% else %}
+        <h3>-</h3>
+      {% endif %}
+      <small class="text-muted">推送成功率</small>
+    </div>
+  </div>
+</div>
 <div class="card"><div class="card-header fw-bold">数据源状态</div><div class="card-body">
 <table class="table table-sm"><thead><tr><th>名称</th><th>端口</th><th>解析器</th><th>状态</th></tr></thead><tbody>
 {% for s in sources %}

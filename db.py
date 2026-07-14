@@ -498,6 +498,12 @@ def cleanup_old_messages():
     _conn().commit()
 
 
+def mark_ignored(msg_id):
+    """标记消息为已忽略。"""
+    _conn().execute("UPDATE message_log SET status='IGNORED' WHERE id=?", (msg_id,))
+    _conn().commit()
+
+
 def check_dedup(dedup_key, window_seconds):
     """检查是否命中去重：同一 dedup_key 在窗口时间内已 SUCCESS 发送过。"""
     r = _conn().execute(

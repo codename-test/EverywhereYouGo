@@ -16,22 +16,24 @@ class Bark(BaseChannel):
         self.server_url = config.get("server_url", "https://api.day.app")
         self.device_key = config.get("device_key", "")
 
-    def send(self, title: str, content: str) -> bool:
+    def send(self, title: str, content: str) -> tuple:
         if not self.device_key:
-            return False
+            return False, "device_key is empty"
         try:
             resp = requests.post(
                 f"{self.server_url}/{self.device_key}",
                 json={"title": title, "body": content, "group": "EverywhereYouGo"},
                 timeout=15
             )
-            ok = resp.json().get("code") == 200
-            if not ok:
-                log.logger.error(f"Bark send: {resp.json().get('message')}")
-            return ok
+            body = resp.json()
+            if body.get("code") == 200:
+                return True, ""
+            errmsg = body.get("message", "unknown error")
+            log.logger.error(f"Bark send: {errmsg}")
+            return False, errmsg
         except Exception as e:
             log.logger.error(f"Bark send: {e}")
-            return False
+            return False, str(e)
 
     def test(self) -> bool:
         if not self.device_key:

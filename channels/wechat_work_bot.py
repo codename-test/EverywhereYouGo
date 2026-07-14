@@ -15,22 +15,25 @@ class WechatWorkBot(BaseChannel):
         super().__init__(config)
         self.webhook_url = config.get("webhook_url", "")
 
-    def send(self, title: str, content: str) -> bool:
+    def send(self, title: str, content: str) -> tuple:
         if not self.webhook_url:
-            return False
+            return False, "webhook_url is empty"
         text = f"**{title}**\n{content}"
         try:
             resp = requests.post(self.webhook_url, json={
                 "msgtype": "markdown",
                 "markdown": {"content": text}
             }, timeout=15)
-            ok = resp.json().get("errcode") == 0
-            if not ok:
-                log.logger.error(f"WechatWorkBot send: {resp.json().get('errmsg')}")
-            return ok
+            body = resp.json()
+            errcode = body.get("errcode")
+            if errcode == 0:
+                return True, ""
+            errmsg = body.get("errmsg", f"errcode={errcode}")
+            log.logger.error(f"WechatWorkBot send: {errmsg}")
+            return False, errmsg
         except Exception as e:
             log.logger.error(f"WechatWorkBot send: {e}")
-            return False
+            return False, str(e)
 
     def test(self) -> bool:
         if not self.webhook_url:

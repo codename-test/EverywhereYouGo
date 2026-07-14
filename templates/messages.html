@@ -34,6 +34,7 @@
                         <option value="PENDING">PENDING</option>
                         <option value="SUCCESS">SUCCESS</option>
                         <option value="FAILED">FAILED</option>
+                        <option value="IGNORED">IGNORED</option>
                         <option value="DISCARDED">DISCARDED</option>
                         <option value="NO_MATCH">NO_MATCH</option>
                     </select>
@@ -59,17 +60,26 @@
         </div>
     </div>
 
+    <!-- 批处理工具栏 -->
+    <div class="mb-2" id="batchToolbar" style="display:none">
+        <span class="me-2 small text-muted" id="selectedCount">已选 0 条</span>
+        <button class="btn btn-outline-warning btn-sm me-1" onclick="batchRetry()">批量重发</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="batchIgnore()">标记已处理</button>
+        <button class="btn btn-outline-light btn-sm" onclick="clearSelection()">取消选择</button>
+    </div>
+
     <!-- 消息表格 -->
     <div class="table-responsive">
         <table class="table table-sm table-hover align-middle" id="msgTable">
             <thead class="table-light">
                 <tr>
+                    <th style="width:30px"><input type="checkbox" id="selectAll" onchange="toggleAll()"></th>
                     <th style="width:50px">ID</th>
                     <th style="width:80px">Trace</th>
                     <th style="width:80px">来源</th>
                     <th style="width:90px">状态</th>
                     <th>通道结果</th>
-                    <th style="width:50px">操作</th>
+                    <th style="width:100px">操作</th>
                 </tr>
             </thead>
             <tbody id="msgBody">
@@ -119,14 +129,19 @@ function renderMessages(msgs) {
         const statusClass = {
             'RECEIVED': 'secondary', 'PARSED': 'info', 'SENDING': 'warning',
             'PENDING': 'warning', 'SUCCESS': 'success', 'FAILED': 'danger',
-            'DISCARDED': 'secondary', 'NO_MATCH': 'secondary'
+            'IGNORED': 'secondary', 'DISCARDED': 'secondary', 'NO_MATCH': 'secondary'
         }[m.status] || 'secondary';
         const cr = parseChannelResults(m.channel_results);
         const trace = m.trace_id ? m.trace_id.substring(0, 8) : '?';
-        const actions = m.status === 'FAILED'
-            ? `<button class="btn btn-outline-warning btn-sm" onclick="retryMsg(${m.id})" title="重发">↻</button>`
-            : '';
+        let actions = '';
+        if (m.status === 'FAILED') {
+            actions += `<button class="btn btn-outline-warning btn-sm me-1" onclick="retryMsg(${m.id})" title="重发">↻</button>`;
+        }
+        if (m.status === 'FAILED' || m.status === 'DISCARDED' || m.status === 'NO_MATCH') {
+            actions += `<button class="btn btn-outline-secondary btn-sm" onclick="ignoreMsg(${m.id})" title="标记已处理">✓</button>`;
+        }
         return `<tr onclick="toggleRow(${m.id})" style="cursor:pointer">
+            <td onclick="event.stopPropagation()"><input type="checkbox" class="msg-select" value="${m.id}" onchange="updateBatchToolbar()"></td>
             <td>${m.id}</td>
             <td><code>${trace}</code></td>
             <td>${escHtml(m.source_name)||'?'}</td>
@@ -135,14 +150,14 @@ function renderMessages(msgs) {
             <td>${actions}</td>
         </tr>
         <tr id="detail-${m.id}" style="display:none">
-            <td colspan="6" class="bg-light small">
+            <td colspan="6" class="bg-dark small text-light">
                 <div class="p-2">
                     ${m.error ? '<div class="text-danger mb-1"><b>错误:</b> ' + escHtml(m.error) + '</div>' : ''}
                     <div class="mb-1"><b>时间:</b> ${m.created_at}</div>
                     ${m.dedup_key ? '<div class="mb-1"><b>去重键:</b> ' + escHtml(m.dedup_key) + '</div>' : ''}
-                    ${m.raw_body ? '<details class="mb-1"><summary><b>原始数据</b></summary><pre class="mt-1 p-2 bg-white rounded" style="max-height:200px;overflow:auto;font-size:11px">' + escHtml(m.raw_body) + '</pre></details>' : ''}
-                    ${m.msg_json ? '<details class="mb-1"><summary><b>解析结果</b></summary><pre class="mt-1 p-2 bg-white rounded" style="max-height:200px;overflow:auto;font-size:11px">' + escHtml(fmtJson(m.msg_json)) + '</pre></details>' : ''}
-                    ${m.channel_results ? '<details class="mb-1"><summary><b>通道详情</b></summary><pre class="mt-1 p-2 bg-white rounded" style="max-height:200px;overflow:auto;font-size:11px">' + escHtml(fmtJson(m.channel_results)) + '</pre></details>' : ''}
+                    ${m.raw_body ? '<details class="mb-1"><summary><b>原始数据</b></summary><pre class="mt-1 p-2 rounded" style="max-height:200px;overflow:auto;font-size:12px;background:#1e1e1e;color:#d4d4d4;border:1px solid #333">' + escHtml(m.raw_body) + '</pre></details>' : ''}
+                    ${m.msg_json ? '<details class="mb-1"><summary><b>解析结果</b></summary><pre class="mt-1 p-2 rounded" style="max-height:200px;overflow:auto;font-size:12px;background:#1e1e1e;color:#d4d4d4;border:1px solid #333">' + escHtml(fmtJson(m.msg_json)) + '</pre></details>' : ''}
+                    ${m.channel_results ? '<details class="mb-1"><summary><b>通道详情</b></summary><pre class="mt-1 p-2 rounded" style="max-height:200px;overflow:auto;font-size:12px;background:#1e1e1e;color:#d4d4d4;border:1px solid #333">' + escHtml(fmtJson(m.channel_results)) + '</pre></details>' : ''}
                 </div>
             </td>
         </tr>`;
@@ -175,6 +190,13 @@ function retryMsg(id) {
         });
 }
 
+function ignoreMsg(id) {
+    if (!confirm('标记为已处理？')) return;
+    fetch('/api/messages/' + id + '/ignore', {method:'POST'})
+        .then(r => r.json())
+        .then(() => loadMessages(currentPage));
+}
+
 function flushQueue() {
     fetch('/api/queue/flush', {method:'POST'})
         .then(r => r.json())
@@ -182,6 +204,66 @@ function flushQueue() {
             alert('已刷新 ' + data.count + ' 条消息');
             loadMessages(currentPage);
         });
+}
+
+// ── 批量操作 ──
+
+function toggleAll() {
+    const checked = document.getElementById('selectAll').checked;
+    document.querySelectorAll('.msg-select').forEach(cb => cb.checked = checked);
+    updateBatchToolbar();
+}
+
+function updateBatchToolbar() {
+    const selected = document.querySelectorAll('.msg-select:checked');
+    const toolbar = document.getElementById('batchToolbar');
+    const count = document.getElementById('selectedCount');
+    if (selected.length > 0) {
+        toolbar.style.display = 'block';
+        count.textContent = '已选 ' + selected.length + ' 条';
+    } else {
+        toolbar.style.display = 'none';
+    }
+}
+
+function getSelectedIds() {
+    return Array.from(document.querySelectorAll('.msg-select:checked')).map(cb => parseInt(cb.value));
+}
+
+function batchRetry() {
+    const ids = getSelectedIds();
+    if (!ids.length) return;
+    if (!confirm('重发选中的 ' + ids.length + ' 条消息？')) return;
+    fetch('/api/messages/batch', {
+        method:'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({action:'retry', ids: ids})
+    }).then(r => r.json()).then(data => {
+        alert('成功: ' + data.ok + ' 条, 失败: ' + data.fail + ' 条');
+        clearSelection();
+        loadMessages(currentPage);
+    });
+}
+
+function batchIgnore() {
+    const ids = getSelectedIds();
+    if (!ids.length) return;
+    if (!confirm('标记选中的 ' + ids.length + ' 条为已处理？')) return;
+    fetch('/api/messages/batch', {
+        method:'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({action:'ignore', ids: ids})
+    }).then(r => r.json()).then(data => {
+        alert('已标记 ' + data.ok + ' 条');
+        clearSelection();
+        loadMessages(currentPage);
+    });
+}
+
+function clearSelection() {
+    document.querySelectorAll('.msg-select').forEach(cb => cb.checked = false);
+    document.getElementById('selectAll').checked = false;
+    updateBatchToolbar();
 }
 
 function renderPagination() {

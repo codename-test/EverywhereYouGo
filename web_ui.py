@@ -183,6 +183,25 @@ def api_update_parser_content(pid):
         return jsonify({"error": f"Syntax error: {str(e)}"}), 400
 
 
+@app.route("/api/parsers/<int:pid>/variables", methods=["GET"])
+def api_parser_variables(pid):
+    """返回解析器 return dict 中定义的所有变量名。"""
+    p = db.get_parser(pid)
+    if not p:
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    fpath = os.path.join(PARSERS_DIR, p["filename"])
+    if not os.path.isfile(fpath):
+        return jsonify({"ok": False, "error": "File not found"}), 404
+    with open(fpath, "r", encoding="utf-8") as f:
+        content = f.read()
+    import re
+    match = re.search(r"return\s*\{([\s\S]*?)\}", content)
+    keys = []
+    if match:
+        keys = list(set(re.findall(r'"([^"]+)"', match.group(1))))
+    return jsonify({"ok": True, "filename": p["filename"], "variables": [{"path": k, "type": "str", "sample": ""} for k in keys]})
+
+
 # ── Channels ─────────────────────────────────
 
 
@@ -247,6 +266,21 @@ def api_update_template(tid):
     return jsonify({"status": "ok"})
 
 
+@app.route("/api/templates/test-render", methods=["POST"])
+def api_template_test_render():
+    """测试模板渲染效果。"""
+    data = request.json
+    if not data:
+        return jsonify({"ok": False, "error": "No data"}), 400
+    engine = data.get("engine", "simple")
+    title_tpl = data.get("title_tpl", "")
+    content_tpl = data.get("content_tpl", "")
+    msg = data.get("msg", {})
+    try:
+        result = renderer.render_template(engine, title_tpl, content_tpl, msg)
+        return jsonify({"ok": True, "result": result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 
 # ── Logs ─────────────────────────────────────
@@ -314,6 +348,38 @@ def api_retry_message(msg_id):
     return jsonify({"ok": ok, "error": err} if err else {"ok": ok})
 
 
+@app.route("/api/messages/<int:msg_id>/ignore", methods=["POST"])
+def api_ignore_message(msg_id):
+    db.mark_ignored(msg_id)
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/messages/batch", methods=["POST"])
+def api_batch_messages():
+    data = request.json
+    action = data.get("action")  # "retry" or "ignore"
+    ids = data.get("ids", [])
+    if not ids:
+        return jsonify({"ok": False, "error": "No ids provided"})
+
+    results = {"ok": 0, "fail": 0, "errors": []}
+    for mid in ids:
+        if action == "retry":
+            ok, err = sm.retry_message(mid)
+            if ok:
+                results["ok"] += 1
+            else:
+                results["fail"] += 1
+                results["errors"].append({"id": mid, "error": err})
+        elif action == "ignore":
+            db.mark_ignored(mid)
+            results["ok"] += 1
+        else:
+            return jsonify({"ok": False, "error": f"Unknown action: {action}"})
+
+    return jsonify(results)
+
+
 # ── Queue / Flush ────────────────────────────
 
 
@@ -350,6 +416,67 @@ def api_save_source_channels(sid):
             urgent=item.get("urgent", 0),
         )
     return jsonify({"status": "ok", "count": len(items)})
+
+
+# ── 样本数据 / 测试解析 / 测试推送 ──────────────
+
+
+@app.route("/api/sources/<int:sid>/samples", methods=["GET"])
+def api_source_samples(sid):
+    """获取数据源的最近样本数据。"""
+    count = request.args.get("count", 10, type=int)
+    samples = sm.get_samples(sid, count)
+    return jsonify(samples)
+
+
+@app.route("/api/sources/<int:sid>/test-parse", methods=["POST"])
+def api_source_test_parse(sid):
+    """测试解析：用选中的样本数据运行解析器，返回解析结果。"""
+    data = request.json
+    sample_body = data.get("body", "")
+    sample_headers = data.get("headers", {})
+    sample_query = data.get("query_params", {})
+
+    src = db.get_source(sid)
+    if not src:
+        return jsonify({"ok": False, "error": "数据源不存在"}), 404
+    if not src.get("parser_id"):
+        return jsonify({"ok": False, "error": "此数据源未绑定解析器"})
+
+    parser = db.get_parser(src["parser_id"])
+    if not parser:
+        return jsonify({"ok": False, "error": "解析器不存在"})
+
+    try:
+        raw_body = sample_body.encode("utf-8")
+        result = parser_loader.run_parser(parser["filename"], raw_body, sample_headers, sample_query)
+        return jsonify({"ok": True, "result": result})
+    except Exception as e:
+        log.logger.error(f"[test-parse] sid={sid}: {e}")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@app.route("/api/sources/<int:sid>/test-push", methods=["POST"])
+def api_source_test_push(sid):
+    """测试推送：用选中的样本数据走完整链路（解析 → 路由 → 发送）。"""
+    data = request.json
+    sample_body = data.get("body", "")
+    sample_headers = data.get("headers", {})
+    sample_query = data.get("query_params", {})
+
+    src = db.get_source(sid)
+    if not src:
+        return jsonify({"ok": False, "error": "数据源不存在"}), 404
+    if not src.get("parser_id"):
+        return jsonify({"ok": False, "error": "此数据源未绑定解析器"})
+
+    try:
+        raw_body = sample_body.encode("utf-8")
+        ok, msg = sm.process_message(sid, raw_body, sample_headers, sample_query)
+        return jsonify({"ok": ok, "message": "推送成功" if ok else "推送失败，请查看日志"})
+    except Exception as e:
+        log.logger.error(f"[test-push] sid={sid}: {e}")
+        return jsonify({"ok": False, "error": str(e)})
 
 
 @app.route("/api/sources/<int:sid>", methods=["DELETE"])

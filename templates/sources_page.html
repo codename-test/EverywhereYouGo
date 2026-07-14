@@ -17,14 +17,27 @@
     <div class="modal-body">
       <input type="hidden" id="src-id">
       <div class="row g-3 mb-3">
-        <div class="col-md-6"><label class="form-label">名称</label>
+        <div class="col-md-4"><label class="form-label">名称</label>
           <input class="form-control" id="src-name"></div>
-        <div class="col-md-3"><label class="form-label">监听端口</label>
+        <div class="col-md-2"><label class="form-label">监听端口</label>
           <input class="form-control" type="number" id="src-port" min="1024" max="65535"></div>
-        <div class="col-md-3"><label class="form-label">解析器</label>
-          <select class="form-select" id="src-parser"><option value="">-- 选择 --</option>
-            {% for p in parsers %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
-          </select></div>
+        <div class="col-md-6"><label class="form-label">解析器</label>
+          <div class="input-group">
+            <select class="form-select" id="src-parser"><option value="">-- 选择 --</option>
+              {% for p in parsers %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+            </select>
+            <button class="btn btn-outline-info btn-sm" type="button" onclick="showAvailKeys()" title="展示解析器输出的变量名，点击可插入到条件表达式"><i class="bi bi-list-columns-reverse"></i> 变量</button>
+          </div>
+        </div>
+      </div>
+      <div id="avail-keys-panel" class="collapse mb-3">
+        <div class="card card-body p-2" style="max-height:200px;overflow-y:auto;font-size:0.8rem;">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <strong>可用变量（点击复制）</strong>
+            <small class="text-muted" id="avail-keys-count"></small>
+          </div>
+          <div id="avail-keys-list"></div>
+        </div>
       </div>
       <div class="form-check mb-3">
         <input class="form-check-input" type="checkbox" id="src-enabled" checked>
@@ -35,7 +48,7 @@
         <div class="row g-2 mt-1 mb-1">
           <div class="col-md-3"><small class="text-muted">推送通道</small></div>
           <div class="col-md-3"><small class="text-muted">推送模板</small></div>
-          <div class="col-md-2"><small class="text-muted">条件表达式 <i class="bi bi-question-circle" title="留空=无条件推送。根据解析器的 route_tags 做条件匹配，如 event == 'library.new' 仅新入库时推送，media_type == 'Movie' 仅电影推送"></i></small></div>
+          <div class="col-md-2"><small class="text-muted">条件表达式 <i class="bi bi-question-circle" title="留空=无条件推送。根据解析器返回的顶层字段做条件匹配，如 event == 'library.new' 仅新入库时推送，media_type == 'Movie' 仅电影推送"></i></small></div>
           <div class="col-md-1"><small class="text-muted">优先级</small></div>
           <div class="col-md-1 text-center"><small class="text-muted" title="紧急通道：DND 时段也推送">紧急</small></div>
           <div class="col-md-1"></div>
@@ -49,6 +62,7 @@
       <div class="mt-2">
         <button class="btn btn-info btn-sm" onclick="testParse()"><i class="bi bi-play"></i> 测试解析</button>
         <button class="btn btn-warning btn-sm ms-1" onclick="testPush()"><i class="bi bi-send"></i> 测试推送</button>
+        <button class="btn btn-secondary btn-sm ms-1" onclick="copyAIPrompt()"><i class="bi bi-clipboard"></i> 🤖 复制AI提示词</button>
       </div>
     </div>
     <div class="modal-footer">
@@ -91,25 +105,64 @@ function loadSources() {
     renderSources();
   });
 }
+let sourceSortKey = '';
+let sourceSortAsc = true;
+let sourceFilters = {name: '', port: '', parser: ''};
 function renderSources() {
-  let html = '';
-  SOURCES.forEach(s=>{
+  let data = SOURCES.slice();
+  // Apply filters
+  if (sourceFilters.name) data = data.filter(s => s.name.toLowerCase().includes(sourceFilters.name.toLowerCase()));
+  if (sourceFilters.port) data = data.filter(s => String(s.port).includes(sourceFilters.port));
+  if (sourceFilters.parser) data = data.filter(s => (s.parser_name||'').toLowerCase().includes(sourceFilters.parser.toLowerCase()));
+  // Apply sort
+  if (sourceSortKey) {
+    data.sort((a,b) => {
+      let va = a[sourceSortKey] || '';
+      let vb = b[sourceSortKey] || '';
+      if (typeof va === 'number' && typeof vb === 'number') return sourceSortAsc ? va - vb : vb - va;
+      return sourceSortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+    });
+  }
+  let sortIcon = (key) => sourceSortKey === key ? (sourceSortAsc ? ' ↑' : ' ↓') : '';
+  let filterInput = (key, ph) => `<input class="form-control form-control-sm" placeholder="${ph}" value="${sourceFilters[key]||''}" oninput="sourceFilters['${key}']=this.value;renderSources();">`;
+  let html = `<div class="table-responsive"><table class="table table-sm table-hover mb-0">
+    <colgroup>
+      <col style="width:12%"><col style="width:6%"><col style="width:14%"><col style="width:34%"><col style="width:18%"><col style="width:7%"><col style="width:9%">
+    </colgroup>
+    <thead><tr>
+      <th style="cursor:pointer;" onclick="if(sourceSortKey==='name'){sourceSortAsc=!sourceSortAsc;}else{sourceSortKey='name';sourceSortAsc=true;}renderSources();">名称${sortIcon('name')}</th>
+      <th style="cursor:pointer;" onclick="if(sourceSortKey==='port'){sourceSortAsc=!sourceSortAsc;}else{sourceSortKey='port';sourceSortAsc=true;}renderSources();">端口${sortIcon('port')}</th>
+      <th style="cursor:pointer;" onclick="if(sourceSortKey==='parser_name'){sourceSortAsc=!sourceSortAsc;}else{sourceSortKey='parser_name';sourceSortAsc=true;}renderSources();">解析器${sortIcon('parser_name')}</th>
+      <th>条件</th>
+      <th>渠道</th>
+      <th>状态</th>
+      <th></th>
+    </tr><tr>
+      <th>${filterInput('name', '搜索名称')}</th>
+      <th>${filterInput('port', '端口')}</th>
+      <th>${filterInput('parser', '搜索解析器')}</th>
+      <th></th><th></th><th></th><th></th>
+    </tr></thead><tbody>`;
+  data.forEach(s=>{
     let sc = SC_BINDINGS.filter(x=>x.source_id==s.id);
+    let conds = sc.map(x=>x.condition_expr||'(无条件)').join('<br>');
     let chNames = sc.map(x=>{let c=CHANNELS.find(y=>y.id==x.channel_id); return c?c.name:'?';}).join(', ');
-    html += `<div class="card mb-2"><div class="card-body py-2">
-      <div class="d-flex justify-content-between align-items-center">
-        <div><strong>${s.name}</strong>
-          <span class="badge bg-info ms-2">:${s.port}</span>
-          <small class="text-muted ms-2">解析器: ${s.parser_name||'无'}</small>
-          <small class="text-muted ms-2">渠道: ${chNames||'无'}</small></div>
-        <div>
-          <span class="badge bg-${s.enabled?'success':'secondary'} me-2">${s.enabled?'运行中':'已停用'}</span>
-          <button class="btn btn-sm btn-outline-secondary" onclick="editSource(${s.id})"><i class="bi bi-pencil"></i></button>
-          <button class="btn btn-sm btn-outline-info" onclick="exportItem('source',${s.id})" title="导出"><i class="bi bi-download"></i></button>
-          <button class="btn btn-sm btn-outline-danger" onclick="deleteSource(${s.id})"><i class="bi bi-trash"></i></button>
-        </div></div></div></div>`;
+    html += `<tr>
+      <td><strong>${s.name}</strong></td>
+      <td><code>${s.port}</code></td>
+      <td>${s.parser_name||'<span class="text-muted">无</span>'}</td>
+      <td style="font-size:0.85em;word-break:break-all;">${conds||'<span class="text-muted">-</span>'}</td>
+      <td>${chNames||'<span class="text-muted">无</span>'}</td>
+      <td><span class="badge bg-${s.enabled?'success':'secondary'}">${s.enabled?'运行中':'已停用'}</span></td>
+      <td class="text-nowrap">
+        <button class="btn btn-sm btn-outline-secondary" onclick="editSource(${s.id})"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-sm btn-outline-info" onclick="exportItem('source',${s.id})" title="导出"><i class="bi bi-download"></i></button>
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteSource(${s.id})"><i class="bi bi-trash"></i></button>
+      </td>
+    </tr>`;
   });
-  if(!html) html='<div class="text-muted">暂无数据源</div>';
+  html += '</tbody></table></div>';
+  if(!data.length) html='<div class="text-muted p-3">暂无数据源</div>';
   document.getElementById('sources-list').innerHTML = html;
 }
 function editSource(id) {
@@ -146,10 +199,10 @@ function saveSource() {
   if(editId) { method='PUT'; url='/api/sources/'+editId; }
   else { method='POST'; url='/api/sources'; }
   fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
-  .then(r=>r.json()).then(res=>{
+  .then(r=>r.json()).then(async res=>{
     if(res.error) return alert(res.error);
     // 保存绑定
-    if(editId) saveBindings(editId);
+    if(editId) await saveBindings(editId);
     bootstrap.Modal.getInstance(document.getElementById('sourceModal')).hide();
     loadSources();
   });
@@ -172,6 +225,7 @@ function addBindingRow(data) {
 }
 function saveBindings(sourceId) {
   let rows = document.querySelectorAll('#bindings-container .row');
+  let items = [];
   rows.forEach(row=>{
     let chId = parseInt(row.querySelector('.ch-sel').value);
     let tId = parseInt(row.querySelector('.tpl-sel').value);
@@ -179,10 +233,16 @@ function saveBindings(sourceId) {
     let pri = parseInt(row.querySelector('.pri').value)||0;
     let urg = row.querySelector('.urgent-chk').checked ? 1 : 0;
     if(!chId||!tId) return;
-    fetch('/api/sources/'+sourceId+'/channels',{method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({channel_id:chId,template_id:tId,condition_expr:cond,priority:pri,urgent:urg})});
+    items.push({channel_id:chId,template_id:tId,condition_expr:cond,priority:pri,urgent:urg});
   });
+  if(items.length===0) {
+    // 全部删除：仍需通知后端清空
+    return fetch('/api/sources/'+sourceId+'/channels',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:'[]'}).then(r=>r.json());
+  }
+  return fetch('/api/sources/'+sourceId+'/channels',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(items)}).then(r=>r.json());
 }
 function refreshSamples() {
   let sid = editId||document.getElementById('src-id').value;
@@ -209,6 +269,59 @@ function getActiveSample() {
   if (!sel) return null;
   return samples[parseInt(sel.value)];
 }
+function showAvailKeys() {
+  let parserSel = document.getElementById('src-parser');
+  let pid = parserSel.value;
+  if (!pid) return alert('请先选择解析器');
+  fetch('/api/parsers/'+pid+'/content').then(r=>r.json()).then(res=>{
+    let panel = document.getElementById('avail-keys-panel');
+    let list = document.getElementById('avail-keys-list');
+    let count = document.getElementById('avail-keys-count');
+    if (res.content) {
+      // 从 return { ... } 块中提取 key
+      let returnBlock = res.content.match(/return\s*\{([\s\S]*?)\}/);
+      let keys = [];
+      if (returnBlock) {
+        let matches = returnBlock[1].matchAll(/"([^"]+)"/g);
+        for (let m of matches) keys.push(m[1]);
+      }
+      // 去重
+      keys = [...new Set(keys)];
+      count.textContent = keys.length + ' 个变量（点击插入到条件表达式）';
+      list.innerHTML = keys.map(k =>
+        `<span class="badge bg-light text-dark border me-2 mb-2 py-2 px-3" style="cursor:pointer;font-size:0.9rem;" onclick="insertVarToCondition('${k}')">${k}</span>`
+      ).join('');
+    } else {
+      count.textContent = '';
+      list.innerHTML = '<span class="text-danger">读取解析器失败</span>';
+    }
+    new bootstrap.Collapse(panel, {toggle: false}).show();
+  });
+}
+let activeCondInput = null;
+document.addEventListener('focusin', function(e) {
+  if (e.target.classList.contains('cond')) activeCondInput = e.target;
+});
+function insertVarToCondition(varName) {
+  let rows = document.querySelectorAll('#bindings-container .row');
+  if (rows.length === 0) {
+    alert('请先添加渠道绑定');
+    return;
+  }
+  // 优先插入到当前激活的条件输入框，否则插入到最后一个
+  let targetInput = activeCondInput || rows[rows.length - 1].querySelector('.cond');
+  if (targetInput) {
+    let start = targetInput.selectionStart;
+    let end = targetInput.selectionEnd;
+    let text = targetInput.value;
+    targetInput.value = text.substring(0, start) + varName + text.substring(end);
+    targetInput.focus();
+    targetInput.setSelectionRange(start + varName.length, start + varName.length);
+    // 视觉反馈
+    targetInput.classList.add('bg-success', 'text-white');
+    setTimeout(() => targetInput.classList.remove('bg-success', 'text-white'), 300);
+  }
+}
 function testParse() {
   let sid = editId||document.getElementById('src-id').value;
   let s = getActiveSample();
@@ -220,8 +333,7 @@ function testParse() {
     let el = document.getElementById('parse-result');
     el.style.display = 'block';
     if(res.ok) {
-      el.innerHTML = `<div class="alert alert-success mb-0"><b>解析成功</b><pre class="mb-0 mt-1 small">${JSON.stringify(res.result,null,2).replace(/</g,'&lt;')}</pre>
-        <small class="text-muted">可用变量: ${res.variables.map(function(v){var lb=String.fromCharCode(123,123);var rb=String.fromCharCode(125,125);return '<code>'+lb+v.path+rb+'</code>';}).join(' ')}</small></div>`;
+      el.innerHTML = `<div class="alert alert-success mb-0"><b>解析成功</b><pre class="mb-0 mt-1 small">${JSON.stringify(res.result,null,2).replace(/</g,'&lt;')}</pre></div>`;
     } else {
       el.innerHTML = `<div class="alert alert-danger mb-0"><b>解析失败</b><pre class="mb-0 mt-1 small">${res.error.replace(/</g,'&lt;')}</pre></div>`;
     }
@@ -238,6 +350,79 @@ function testPush() {
     alert(res.ok?'推送成功':'推送失败，请查看日志');
   });
 }
+function copyAIPrompt() {
+  let s = getActiveSample();
+  if (!s) return alert('请先勾选一个样本');
+  let parserName = document.getElementById('src-parser');
+  let parserLabel = parserName.options[parserName.selectedIndex]?.text || '未选择';
+  let sampleBody = s.body;
+  let rawHeaders = s.headers ? JSON.stringify(s.headers, null, 2) : '{}';
+  let rawQuery = s.query_params ? JSON.stringify(s.query_params, null, 2) : '{}';
+  let prompt = `你是一个 Python 脚本生成器。请为下面的数据源编写一个解析器脚本。
+
+## 要求
+
+- 文件名：\`parsers/<数据源名称>.py\`（全小写，下划线分隔）
+- 必须包含一个 \`parse(raw_body: bytes, headers: dict, query_params: dict) -> dict\` 函数
+- 返回 dict 要求：
+  - 分析样本数据，挑选所有有意义的字段，为每个字段定义一个简洁直观的变量名（如 \`name\`、\`event\`、\`media_type\`、\`year\`、\`overview\`、\`server_url\` 等）
+  - 在解析器里用明确的赋值语句从 JSON 中提取每个字段（如 \`event = data["Event"]\`、\`name = data["Item"]["Name"]\`）
+  - 将所有变量放入返回 dict，key 即变量名，value 全部 \`str(v)\`
+  - 同时返回 \`title\`（从变量中挑一个最合适的）和 \`content\`（将变量按 \`- **变量名**: 值\` 格式组织成 Markdown 列表）
+  - **不要做自动展平**，要明确列出每个字段的来源路径和变量名
+
+## 当前数据源
+
+- 名称：${parserLabel}
+
+## 样本数据（原始请求体）
+
+\`\`\`json
+${sampleBody}
+\`\`\`
+
+## 请求头
+
+\`\`\`json
+${rawHeaders}
+\`\`\`
+
+## 查询参数
+
+\`\`\`json
+${rawQuery}
+\`\`\`
+
+请参考上面的样本数据，输出完整的 Python 解析器脚本代码（仅代码，无需额外说明）。`;
+  _copyToClipboard(prompt);
+}
+function _copyToClipboard(text) {
+  // 直接弹手动复制框，不依赖任何自动复制 API
+  showManualCopyModal(text);
+}
+function showManualCopyModal(text) {
+  // 当 execCommand 失败时，弹出一个 Bootstrap 模态框让用户手动复制
+  let existing = document.getElementById('manual-copy-modal');
+  if (existing) existing.remove();
+  let div = document.createElement('div');
+  div.id = 'manual-copy-modal';
+  div.className = 'modal fade';
+  div.tabIndex = -1;
+  div.innerHTML = '<div class="modal-dialog modal-lg"><div class="modal-content">' +
+    '<div class="modal-header"><h5 class="modal-title">复制提示词</h5>' +
+    '<button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>' +
+    '<div class="modal-body"><p class="text-muted small">自动复制失败，请手动选中下方文本复制（Ctrl+C / ⌘C）：</p>' +
+    '<textarea class="form-control" style="height:300px;font-size:12px;font-family:monospace;" readonly>' +
+    text.replace(/</g,'&lt;').replace(/>/g,'&gt;') +
+    '</textarea></div>' +
+    '<div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">关闭</button></div></div></div>';
+  document.body.appendChild(div);
+  let modal = new bootstrap.Modal(div);
+  modal.show();
+  // 自动全选
+  let ta = div.querySelector('textarea');
+  if (ta) { ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length); }
+}
 loadSources();
 
 function exportItem(type, id) {
@@ -251,7 +436,6 @@ function exportItem(type, id) {
       a.click();
     });
 }
-</script>
-</script>
 {% endraw %}
+</script>
 {% endblock %}

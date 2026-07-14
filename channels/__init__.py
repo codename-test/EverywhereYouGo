@@ -12,8 +12,10 @@ class BaseChannel:
     def __init__(self, config: dict):
         self.config = config
 
-    def send(self, title: str, content: str) -> bool:
-        """发送消息。子类实现。"""
+    def send(self, title: str, content: str) -> tuple:
+        """发送消息。子类实现。
+        返回 (ok: bool, error: str) — error 为空字符串表示成功。
+        """
         raise NotImplementedError
 
     def test(self) -> bool:

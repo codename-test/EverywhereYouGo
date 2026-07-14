@@ -15,9 +15,9 @@ class Feishu(BaseChannel):
         super().__init__(config)
         self.webhook_url = config.get("webhook_url", "")
 
-    def send(self, title: str, content: str) -> bool:
+    def send(self, title: str, content: str) -> tuple:
         if not self.webhook_url:
-            return False
+            return False, "webhook_url is empty"
         try:
             resp = requests.post(self.webhook_url, json={
                 "msg_type": "interactive",
@@ -33,13 +33,16 @@ class Feishu(BaseChannel):
                 }
             }, timeout=15)
             data = resp.json()
-            ok = data.get("code") == 0 or data.get("StatusCode") == 0
-            if not ok:
-                log.logger.error(f"Feishu send: {data}")
-            return ok
+            code = data.get("code", -1)
+            status = data.get("StatusCode", -1)
+            if code == 0 or status == 0:
+                return True, ""
+            errmsg = data.get("msg", data.get("errmsg", f"code={code} status={status}"))
+            log.logger.error(f"Feishu send: {data}")
+            return False, errmsg
         except Exception as e:
             log.logger.error(f"Feishu send: {e}")
-            return False
+            return False, str(e)
 
     def test(self) -> bool:
         if not self.webhook_url:

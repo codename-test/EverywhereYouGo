@@ -15,22 +15,25 @@ class DingTalk(BaseChannel):
         super().__init__(config)
         self.webhook_url = config.get("webhook_url", "")
 
-    def send(self, title: str, content: str) -> bool:
+    def send(self, title: str, content: str) -> tuple:
         if not self.webhook_url:
-            return False
+            return False, "webhook_url is empty"
         text = f"## {title}\n\n{content}"
         try:
             resp = requests.post(self.webhook_url, json={
                 "msgtype": "markdown",
                 "markdown": {"title": title, "text": text}
             }, timeout=15)
-            ok = resp.json().get("errcode") == 0
-            if not ok:
-                log.logger.error(f"DingTalk send: {resp.json().get('errmsg')}")
-            return ok
+            body = resp.json()
+            errcode = body.get("errcode")
+            if errcode == 0:
+                return True, ""
+            errmsg = body.get("errmsg", f"errcode={errcode}")
+            log.logger.error(f"DingTalk send: {errmsg}")
+            return False, errmsg
         except Exception as e:
             log.logger.error(f"DingTalk send: {e}")
-            return False
+            return False, str(e)
 
     def test(self) -> bool:
         if not self.webhook_url:

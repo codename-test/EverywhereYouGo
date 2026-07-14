@@ -5,11 +5,10 @@
 """
 
 import log
-from jinja2 import Template as Jinja2Template, UndefinedError
 
 # 尝试 import jinja2
 try:
-    import jinja2
+    from jinja2 import Template as Jinja2Template, UndefinedError
     HAS_JINJA2 = True
 except ImportError:
     HAS_JINJA2 = False
@@ -24,7 +23,7 @@ def render_template(engine: str, title_tpl: str, content_tpl: str, msg: dict) ->
         engine:      "simple" | "jinja2"
         title_tpl:   标题模板字符串
         content_tpl: 内容模板字符串
-        msg:         标准消息体 dict（title/content/summary/url/image_url/route_tags/tags）
+        msg:         解析器返回的 dict（title/content + 展平的顶层字段）
 
     Returns:
         {"title": str, "content": str}
@@ -36,19 +35,13 @@ def render_template(engine: str, title_tpl: str, content_tpl: str, msg: dict) ->
 
 
 def _render_simple(title_tpl: str, content_tpl: str, msg: dict) -> dict:
-    """简单 {var} 替换。变量名 = msg dict 的顶层 key + tags 平铺。"""
-    # 准备替换字典：msg 顶层 + tags 平铺 + route_tags 平铺
-    vars_dict = {}
-    for k, v in msg.items():
-        if k in ("route_tags", "tags"):
-            if isinstance(v, dict):
-                vars_dict.update(v)
-        else:
-            vars_dict[k] = v
+    """简单 {var} 替换。变量名 = msg dict 的所有顶层 key。"""
+    # 所有顶层标量字段直接作为模板变量
+    vars_dict = {k: v for k, v in msg.items() if isinstance(v, (str, int, float, bool))}
 
     try:
         title = title_tpl.format(**vars_dict) if title_tpl else str(msg.get("title", ""))
-        content = content_tpl.format(**vars_dict) if content_tpl else str(msg.get("content", ""))
+        content = content_tpl.format(**vars_dict) if content_tpl else "\n".join(f"- **{k}**: {v}" for k, v in vars_dict.items() if k != "title")
     except KeyError as e:
         log.logger.warning(f"Simple template missing variable: {e}")
         title = title_tpl
@@ -56,7 +49,7 @@ def _render_simple(title_tpl: str, content_tpl: str, msg: dict) -> dict:
     except Exception as e:
         log.logger.error(f"Simple template render error: {e}")
         title = str(msg.get("title", ""))
-        content = str(msg.get("content", ""))
+        content = "\n".join(f"- **{k}**: {v}" for k, v in vars_dict.items() if k != "title")
 
     return {"title": title, "content": content}
 
@@ -69,11 +62,10 @@ def _render_jinja2(title_tpl: str, content_tpl: str, msg: dict) -> dict:
 
     try:
         title = Jinja2Template(title_tpl).render(msg=msg) if title_tpl else str(msg.get("title", ""))
-        content = Jinja2Template(content_tpl).render(msg=msg) if content_tpl else str(msg.get("content", ""))
+        content = Jinja2Template(content_tpl).render(msg=msg) if content_tpl else "\n".join(f"- **{k}**: {v}" for k, v in msg.items() if k != "title" and isinstance(v, (str, int, float, bool)))
         return {"title": title, "content": content}
-    except UndefinedError as e:
-        log.logger.warning(f"Jinja2 undefined variable: {e}")
-        return {"title": title_tpl, "content": content_tpl}
     except Exception as e:
         log.logger.error(f"Jinja2 render error: {e}")
-        return {"title": str(msg.get("title", "")), "content": str(msg.get("content", ""))}
+        title = str(msg.get("title", ""))
+        content = "\n".join(f"- **{k}**: {v}" for k, v in msg.items() if k != "title" and isinstance(v, (str, int, float, bool)))
+        return {"title": title, "content": content}

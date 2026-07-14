@@ -209,25 +209,13 @@ function loadParserVars() {
                 return;
             }
             
-            // 渲染变量表格
-            let html = '<table class="table table-sm table-bordered mb-0">';
-            html += '<thead><tr><th>变量路径</th><th>类型</th><th>示例值</th></tr></thead>';
-            html += '<tbody>';
-            
-            vars.forEach(v => {
-                const varPath = v.path;
-                const jinja2Var = `{{ ${varPath} }}`;
-                const simpleVar = `{${varPath.split('.').pop()}}`;
-                
-                html += `<tr>`;
-                html += `<td><code style="cursor:pointer" onclick="copyVar('${jinja2Var}', '${simpleVar}')">${varPath}</code></td>`;
-                html += `<td><span class="badge bg-secondary">${v.type}</span></td>`;
-                html += `<td><small class="text-muted">${v.sample || '-'}</small></td>`;
-                html += `</tr>`;
-            });
-            
-            html += '</tbody></table>';
-            html += '<div class="form-text mt-2">💡 点击变量路径可复制到剪贴板（Jinja2 格式）</div>';
+            // 渲染变量为横向 badge
+            let varNames = vars.map(v => v.path).filter(p => !p.startsWith('msg.'));
+            let html = varNames.map(v => {
+                const shortName = v.split('.').pop();
+                return `<span class="badge bg-light text-dark border me-2 mb-2 py-2 px-3" style="cursor:pointer;font-size:0.9rem;" onclick="insertVarToTpl('${shortName}','${v}')">${shortName}</span>`;
+            }).join('');
+            html += '<div class="form-text mt-1">💡 点击变量名插入到光标所在编辑框</div>';
             
             varsList.innerHTML = html;
             varsSection.style.display = 'block';
@@ -238,17 +226,23 @@ function loadParserVars() {
         });
 }
 
-function copyVar(jinja2Var, simpleVar) {
+let activeTplInput = null;
+document.addEventListener('focusin', function(e) {
+  if (e.target.id === 'editTplTitle' || e.target.id === 'editTplContent') activeTplInput = e.target;
+});
+function insertVarToTpl(shortName, fullPath) {
+    let target = activeTplInput || document.getElementById('editTplContent');
+    if (!target) return;
     const engine = document.getElementById('editTplEngine').value;
-    const textToCopy = engine === 'jinja2' ? jinja2Var : simpleVar;
-    const ta = document.createElement('textarea');
-    ta.value = textToCopy;
-    ta.style.position = 'fixed'; ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select(); ta.setSelectionRange(0, 99999);
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-    showToast('已复制: ' + textToCopy, 'success');
+    const text = engine === 'jinja2' ? `{{ ${fullPath} }}` : `{${shortName}}`;
+    let start = target.selectionStart;
+    let end = target.selectionEnd;
+    let val = target.value;
+    target.value = val.substring(0, start) + text + val.substring(end);
+    target.focus();
+    target.setSelectionRange(start + text.length, start + text.length);
+    target.classList.add('bg-success', 'text-white');
+    setTimeout(() => target.classList.remove('bg-success', 'text-white'), 300);
 }
 
 function openEditTemplate(id) {
@@ -301,15 +295,17 @@ function testTplRender() {
         return;
     }
     
-    // 构造测试数据
+    // 构造测试数据（与解析器输出格式一致：title/content + 展平字段）
     const msg = {
-        title: '测试标题',
-        content: '测试内容正文',
-        summary: '这是摘要',
-        url: 'https://example.com',
-        image_url: '',
-        route_tags: {event: 'test', media_type: 'Movie'},
-        tags: {name: '测试电影', year: '2024', overview: '这是一个测试电影的简介...'}
+        title: '测试电影',
+        content: '- **Event**: library.new\n- **Item_Name**: 测试电影\n- **Item_Type**: Movie',
+        Event: 'library.new',
+        Item_Name: '测试电影',
+        Item_Type: 'Movie',
+        Item_ProductionYear: '2024',
+        Item_Overview: '这是一个测试电影的简介...',
+        Server_Name: 'MyEmby',
+        Server_Url: 'https://emby.example.com'
     };
     
     fetch('/api/templates/test-render', {
