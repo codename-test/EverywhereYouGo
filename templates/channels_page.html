@@ -1,0 +1,384 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center mb-3">
+    <h2><i class="bi bi-broadcast"></i> 推送通道</h2>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addChannelModal" onclick="resetChannelModal()">
+        <i class="bi bi-plus-lg"></i> 添加通道
+    </button>
+</div>
+
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> 配置推送通道，数据源可关联多个通道同时推送。支持企业微信应用/机器人、钉钉、飞书、Telegram、Bark。
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>名称</th>
+                    <th>类型</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="channelsTable">
+                {% for ch in channels %}
+                <tr data-channel-id="{{ ch.id }}">
+                    <td>{{ ch.name }}</td>
+                    <td>
+                        {% if ch.type == 'wechat_work_api' %}
+                            <span class="badge bg-primary">企业微信应用</span>
+                        {% elif ch.type == 'wechat_work_bot' %}
+                            <span class="badge bg-success">企业微信机器人</span>
+                        {% elif ch.type == 'dingtalk' %}
+                            <span class="badge bg-info">钉钉</span>
+                        {% elif ch.type == 'feishu' %}
+                            <span class="badge bg-warning text-dark">飞书</span>
+                        {% elif ch.type == 'telegram_bot' %}
+                            <span class="badge bg-secondary">Telegram</span>
+                        {% elif ch.type == 'bark' %}
+                            <span class="badge bg-dark">Bark</span>
+                        {% else %}
+                            <span class="badge bg-secondary">{{ ch.type }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if ch.enabled %}
+                            <span class="badge bg-success">启用</span>
+                        {% else %}
+                            <span class="badge bg-secondary">禁用</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <button class="btn btn-icon btn-outline-primary btn-sm" onclick="testChannel({{ ch.id }})" title="测试"><i class="bi bi-send"></i></button>
+                        <button class="btn btn-icon btn-outline-primary btn-sm" onclick="openEditChannel({{ ch.id }})" title="编辑"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-icon btn-outline-success btn-sm" onclick="duplicateChannel({{ ch.id }})" title="复制"><i class="bi bi-files"></i></button>
+                        <button class="btn btn-icon btn-outline-info btn-sm" onclick="exportItem('channel',{{ ch.id }})" title="导出"><i class="bi bi-download"></i></button>
+                        <button class="btn btn-icon btn-outline-danger btn-sm" onclick="deleteChannel({{ ch.id }})" title="删除"><i class="bi bi-trash"></i></button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 添加/编辑通道弹窗 -->
+<div class="modal fade" id="addChannelModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addChannelModalTitle">添加通道</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addChannelForm" onsubmit="return false">
+                    <input type="hidden" id="editChannelId">
+                    <div class="mb-3">
+                        <label class="form-label">通道名称</label>
+                        <input type="text" class="form-control" id="editChannelName" placeholder="例如：我的通知通道" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">通道类型</label>
+                        <select class="form-select" id="editChannelType" onchange="onChannelTypeChange()">
+                            <option value="wechat_work_api">企业微信应用</option>
+                            <option value="wechat_work_bot">企业微信机器人</option>
+                            <option value="dingtalk">钉钉</option>
+                            <option value="feishu">飞书</option>
+                            <option value="telegram_bot">Telegram</option>
+                            <option value="bark">Bark (iOS)</option>
+                        </select>
+                    </div>
+                    
+                    <!-- 企业微信应用配置 -->
+                    <div id="config_wechat_work_api" class="channel-config">
+                        <div class="mb-3">
+                            <label class="form-label">Corp ID</label>
+                            <input type="text" class="form-control" id="cfg_corp_id" placeholder="企业 ID">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Corp Secret</label>
+                            <input type="password" class="form-control" id="cfg_corp_secret" placeholder="应用 Secret">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Agent ID</label>
+                            <input type="text" class="form-control" id="cfg_agent_id" placeholder="应用 Agent ID">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">接收人</label>
+                            <textarea class="form-control" id="cfg_user_id" rows="3" placeholder="每行一个用户 ID&#10;例如：&#10;@all&#10;zhangsan&#10;lisi"></textarea>
+                            <div class="form-text">"@all" 表示所有人，多个用户每行一个</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">部门 ID</label>
+                            <input type="text" class="form-control" id="cfg_party_id" placeholder="部门 ID，多个用 | 分隔">
+                            <div class="form-text">可选，指定接收消息的部门</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">标签 ID</label>
+                            <input type="text" class="form-control" id="cfg_tag_id" placeholder="标签 ID，多个用 | 分隔">
+                            <div class="form-text">可选，指定接收消息的标签</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 企业微信机器人配置 -->
+                    <div id="config_wechat_work_bot" class="channel-config" style="display:none">
+                        <div class="mb-3">
+                            <label class="form-label">Webhook URL</label>
+                            <input type="text" class="form-control" id="cfg_wwb_webhook_url" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...">
+                        </div>
+                    </div>
+                    
+                    <!-- 钉钉配置 -->
+                    <div id="config_dingtalk" class="channel-config" style="display:none">
+                        <div class="mb-3">
+                            <label class="form-label">Webhook URL</label>
+                            <input type="text" class="form-control" id="cfg_dingtalk_webhook_url" placeholder="https://oapi.dingtalk.com/robot/send?access_token=...">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">加签密钥（可选）</label>
+                            <input type="password" class="form-control" id="cfg_dingtalk_secret" placeholder="SEC...">
+                        </div>
+                    </div>
+                    
+                    <!-- 飞书配置 -->
+                    <div id="config_feishu" class="channel-config" style="display:none">
+                        <div class="mb-3">
+                            <label class="form-label">Webhook URL</label>
+                            <input type="text" class="form-control" id="cfg_feishu_webhook_url" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/...">
+                        </div>
+                    </div>
+                    
+                    <!-- Telegram Bot 配置 -->
+                    <div id="config_telegram_bot" class="channel-config" style="display:none">
+                        <div class="mb-3">
+                            <label class="form-label">Bot Token</label>
+                            <input type="password" class="form-control" id="cfg_bot_token" placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Chat ID</label>
+                            <input type="text" class="form-control" id="cfg_chat_id" placeholder="用户 ID 或群组 ID（如 @channelname）">
+                        </div>
+                    </div>
+                    
+                    <!-- Bark 配置 -->
+                    <div id="config_bark" class="channel-config" style="display:none">
+                        <div class="mb-3">
+                            <label class="form-label">服务器地址（可选）</label>
+                            <input type="text" class="form-control" id="cfg_server_url" placeholder="https://api.day.app" value="https://api.day.app">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Device Key</label>
+                            <input type="text" class="form-control" id="cfg_device_key" placeholder="你的设备密钥">
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="editChannelEnabled" checked>
+                        <label class="form-check-label" for="editChannelEnabled">启用</label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveChannel()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast 容器 -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div id="toast" class="toast" role="alert">
+        <div class="toast-header">
+            <strong class="me-auto" id="toast-title">提示</strong>
+            <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+        </div>
+        <div class="toast-body" id="toast-body"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const channelsData = {{ channels|tojson }};
+
+function showToast(message, type = 'success') {
+    const toast = document.getElementById('toast');
+    const title = document.getElementById('toast-title');
+    const body = document.getElementById('toast-body');
+    
+    title.textContent = type === 'success' ? '成功' : type === 'danger' ? '错误' : '提示';
+    body.textContent = message;
+    toast.className = `toast bg-${type === 'success' ? 'success' : type === 'danger' ? 'danger' : 'info'} text-white`;
+    
+    const bsToast = new bootstrap.Toast(toast);
+    bsToast.show();
+}
+
+function onChannelTypeChange() {
+    const type = document.getElementById('editChannelType').value;
+    document.querySelectorAll('.channel-config').forEach(el => el.style.display = 'none');
+    const configDiv = document.getElementById('config_' + type);
+    if (configDiv) configDiv.style.display = 'block';
+}
+
+function resetChannelModal() {
+    document.getElementById('addChannelModalTitle').textContent = '添加通道';
+    document.getElementById('editChannelId').value = '';
+    document.getElementById('editChannelName').value = '';
+    document.getElementById('editChannelType').value = 'wechat_work_api';
+    document.getElementById('editChannelEnabled').checked = true;
+    document.querySelectorAll('.channel-config input').forEach(el => el.value = '');
+    document.getElementById('cfg_user_id').value = '@all';
+    onChannelTypeChange();
+}
+
+function openEditChannel(id) {
+    const ch = channelsData.find(c => c.id === id);
+    if (!ch) return;
+    
+    document.getElementById('addChannelModalTitle').textContent = '编辑通道';
+    document.getElementById('editChannelId').value = ch.id;
+    document.getElementById('editChannelName').value = ch.name;
+    document.getElementById('editChannelType').value = ch.type;
+    document.getElementById('editChannelEnabled').checked = ch.enabled == 1;
+    
+    onChannelTypeChange();
+    
+    const config = typeof ch.config === 'string' ? JSON.parse(ch.config) : ch.config;
+    
+    if (config.corp_id) document.getElementById('cfg_corp_id').value = config.corp_id;
+    if (config.corp_secret) document.getElementById('cfg_corp_secret').value = config.corp_secret;
+    if (config.agent_id) document.getElementById('cfg_agent_id').value = config.agent_id;
+    if (config.user_id) {
+        document.getElementById('cfg_user_id').value = config.user_id.replace(/\|/g, '\n');
+    }
+    if (config.party_id) document.getElementById('cfg_party_id').value = config.party_id;
+    if (config.tag_id) document.getElementById('cfg_tag_id').value = config.tag_id;
+    if (config.webhook_url) {
+        if (ch.type === 'wechat_work_bot') document.getElementById('cfg_wwb_webhook_url').value = config.webhook_url;
+        else if (ch.type === 'dingtalk') document.getElementById('cfg_dingtalk_webhook_url').value = config.webhook_url;
+        else if (ch.type === 'feishu') document.getElementById('cfg_feishu_webhook_url').value = config.webhook_url;
+    }
+    if (config.secret) document.getElementById('cfg_dingtalk_secret').value = config.secret;
+    if (config.bot_token) document.getElementById('cfg_bot_token').value = config.bot_token;
+    if (config.chat_id) document.getElementById('cfg_chat_id').value = config.chat_id;
+    if (config.server_url) document.getElementById('cfg_server_url').value = config.server_url;
+    if (config.device_key) document.getElementById('cfg_device_key').value = config.device_key;
+    
+    onChannelTypeChange();
+    new bootstrap.Modal(document.getElementById('addChannelModal')).show();
+}
+
+function saveChannel() {
+    const id = document.getElementById('editChannelId').value;
+    const type = document.getElementById('editChannelType').value;
+    
+    const config = {};
+    if (type === 'wechat_work_api') {
+        config.corp_id = document.getElementById('cfg_corp_id').value;
+        config.corp_secret = document.getElementById('cfg_corp_secret').value;
+        config.agent_id = document.getElementById('cfg_agent_id').value;
+        const userIdText = document.getElementById('cfg_user_id').value.trim();
+        config.user_id = userIdText ? userIdText.split('\n').map(s => s.trim()).filter(s => s).join('|') : '';
+        config.party_id = document.getElementById('cfg_party_id').value.trim();
+        config.tag_id = document.getElementById('cfg_tag_id').value.trim();
+        if (!config.user_id && !config.party_id && !config.tag_id) {
+            showToast('接收人、部门 ID、标签 ID 至少填写一项', 'danger');
+            return;
+        }
+    } else if (type === 'wechat_work_bot') {
+        config.webhook_url = document.getElementById('cfg_wwb_webhook_url').value;
+    } else if (type === 'dingtalk') {
+        config.webhook_url = document.getElementById('cfg_dingtalk_webhook_url').value;
+        config.secret = document.getElementById('cfg_dingtalk_secret').value;
+    } else if (type === 'feishu') {
+        config.webhook_url = document.getElementById('cfg_feishu_webhook_url').value;
+    } else if (type === 'telegram_bot') {
+        config.bot_token = document.getElementById('cfg_bot_token').value;
+        config.chat_id = document.getElementById('cfg_chat_id').value;
+    } else if (type === 'bark') {
+        config.server_url = document.getElementById('cfg_server_url').value;
+        config.device_key = document.getElementById('cfg_device_key').value;
+    }
+    
+    const data = {
+        name: document.getElementById('editChannelName').value,
+        type: type,
+        config: config,
+        enabled: document.getElementById('editChannelEnabled').checked ? 1 : 0
+    };
+    
+    const url = id ? `/api/channels/${id}` : '/api/channels';
+    const method = id ? 'PUT' : 'POST';
+    
+    fetch(url, {
+        method: method,
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(() => {
+        showToast('保存成功');
+        setTimeout(() => location.reload(), 500);
+    })
+    .catch(err => showToast('保存失败：' + err, 'danger'));
+}
+
+function deleteChannel(id) {
+    if (!confirm('确定删除此通道？')) return;
+    fetch(`/api/channels/${id}`, {method: 'DELETE'})
+    .then(r => r.json())
+    .then(() => {
+        showToast('已删除');
+        setTimeout(() => location.reload(), 500);
+    })
+    .catch(err => showToast('删除失败：' + err, 'danger'));
+}
+
+function duplicateChannel(id) {
+    if (!confirm('确定复制此通道？')) return;
+    fetch(`/api/channels/${id}/duplicate`, {method: 'POST'})
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            showToast('复制失败：' + data.error, 'danger');
+        } else {
+            showToast('已复制（默认禁用）');
+            setTimeout(() => location.reload(), 500);
+        }
+    })
+    .catch(err => showToast('复制失败：' + err, 'danger'));
+}
+
+function testChannel(id) {
+    showToast('正在测试...', 'info');
+    fetch(`/api/channels/${id}/test`, {method: 'POST'})
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) {
+            showToast('测试成功！', 'success');
+        } else {
+            showToast('测试失败：' + (data.error || '未知错误'), 'danger');
+        }
+    })
+    .catch(err => showToast('测试失败：' + err, 'danger'));
+}
+
+document.addEventListener('DOMContentLoaded', onChannelTypeChange);
+
+function exportItem(type, id) {
+  fetch('/api/export/' + type + '/' + id)
+    .then(r => r.json())
+    .then(data => {
+      const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = type + '_' + id + '.json';
+      a.click();
+    });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4><i class="bi bi-inbox"></i> 消息队列</h4>
+  <button class="btn btn-primary" onclick="flushQueue()">
+    <i class="bi bi-send"></i> 推送全部待发消息
+  </button>
+</div>
+
+<div class="row mb-3" id="queueStats"></div>
+
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>来源</th>
+          <th>消息预览</th>
+          <th>状态</th>
+          <th>创建时间</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="queueTable"></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function loadQueue() {
+  fetch('/api/queue')
+    .then(r => r.json())
+    .then(data => {
+      // stats
+      const s = data.stats;
+      document.getElementById('queueStats').innerHTML = `
+        <div class="col-md-3"><div class="card text-center"><div class="card-body py-2"><small class="text-muted">总计</small><h5 class="mb-0">${s.total}</h5></div></div></div>
+        <div class="col-md-3"><div class="card text-center"><div class="card-body py-2"><small class="text-muted">待发送</small><h5 class="mb-0 text-warning">${s.pending}</h5></div></div></div>
+        <div class="col-md-3"><div class="card text-center"><div class="card-body py-2"><small class="text-muted">已发送</small><h5 class="mb-0 text-success">${s.sent}</h5></div></div></div>
+        <div class="col-md-3"><div class="card text-center"><div class="card-body py-2"><small class="text-muted">失败</small><h5 class="mb-0 text-danger">${s.failed}</h5></div></div></div>
+      `;
+
+      const tbody = document.getElementById('queueTable');
+      if (data.messages.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">暂无消息</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = data.messages.map(m => {
+        let preview = '';
+        try {
+          const msg = JSON.parse(m.msg_json);
+          preview = msg.title || msg.content || '-';
+        } catch(e) { preview = m.msg_json.substring(0, 50); }
+
+        const badge = m.status === 'sent' ? 'bg-success' :
+                      m.status === 'failed' ? 'bg-danger' : 'bg-warning text-dark';
+        const stext = m.status === 'sent' ? '已发送' :
+                      m.status === 'failed' ? '失败' : '待推送';
+
+        return `<tr>
+          <td>${m.id}</td>
+          <td>${m.source_name || '#' + m.source_id} <small class="text-muted">:${m.port || ''}</small></td>
+          <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${preview}</td>
+          <td><span class="badge ${badge}">${stext}</span></td>
+          <td><small>${m.created_at || ''}</small></td>
+          <td><button class="btn btn-sm btn-outline-danger" onclick="deleteMsg(${m.id})"><i class="bi bi-trash"></i></button></td>
+        </tr>`;
+      }).join('');
+    });
+}
+
+function flushQueue() {
+  fetch('/api/queue/flush', {method:'POST'})
+    .then(r => r.json())
+    .then(d => {
+      alert('已推送 ' + d.count + ' 条消息');
+      setTimeout(loadQueue, 1000);
+    });
+}
+
+function deleteMsg(id) {
+  fetch('/api/queue/' + id, {method:'DELETE'})
+    .then(r => r.json())
+    .then(() => loadQueue());
+}
+
+document.addEventListener('DOMContentLoaded', loadQueue);
+setInterval(loadQueue, 15000);
+</script>
+{% endblock %}

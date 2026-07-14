@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="bi bi-speedometer2"></i> 仪表盘</h4>
+<div class="row g-3 mb-4">
+  <div class="col-md-3"><div class="card p-3 text-center"><h3>{{ stats.sources }}</h3><small class="text-muted">数据源</small></div></div>
+  <div class="col-md-3"><div class="card p-3 text-center"><h3>{{ stats.channels }}</h3><small class="text-muted">推送通道</small></div></div>
+  <div class="col-md-3"><div class="card p-3 text-center"><h3>{{ stats.templates }}</h3><small class="text-muted">推送模板</small></div></div>
+  <div class="col-md-3"><div class="card p-3 text-center"><h3>{{ stats.messages_today }}</h3><small class="text-muted">今日消息</small></div></div>
+</div>
+<div class="card"><div class="card-header fw-bold">数据源状态</div><div class="card-body">
+<table class="table table-sm"><thead><tr><th>名称</th><th>端口</th><th>解析器</th><th>状态</th></tr></thead><tbody>
+{% for s in sources %}
+<tr><td>{{ s.name }}</td><td>{{ s.port }}</td><td>{{ s.parser_name or '-' }}</td>
+<td><span class="badge bg-{{ 'success' if s.enabled else 'secondary' }}">{{ '运行中' if s.enabled else '已停用' }}</span></td></tr>
+{% endfor %}
+</tbody></table></div></div>
+{% endblock %}

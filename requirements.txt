@@ -1,0 +1,3 @@
+﻿flask>=3.0
+requests>=2.28
+jinja2>=3.1

@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="bi bi-file-earmark-code"></i> 解析器管理</h4>
+<p class="text-muted">上传 .py 解析脚本，定义 parse() 函数将原始数据转为标准消息体。</p>
+
+<button class="btn btn-primary btn-sm mb-3" data-bs-toggle="modal" data-bs-target="#parserModal">
+  <i class="bi bi-upload"></i> 上传解析器
+</button>
+
+<div id="parsers-list"></div>
+
+<!-- AI 辅助生成 -->
+<div class="card mt-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-robot"></i> AI 辅助生成解析器</span>
+    <button class="btn btn-sm btn-outline-secondary" onclick="copyExampleCode()">
+      <i class="bi bi-clipboard"></i> 复制示例代码
+    </button>
+  </div>
+  <div class="card-body">
+    <p class="text-muted small mb-2">
+      将下面的<strong>示例代码</strong>和你的 Webhook <strong>原始数据</strong>一起发给 AI，
+      让它帮你生成定制解析器。
+    </p>
+    {% raw %}
+<pre id="example-code" class="bg-dark text-light p-3 rounded" style="font-size:0.85rem; max-height:400px; overflow:auto;">import json
+
+def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
+    data = json.loads(raw_body)
+
+    return {
+        "title":   data.get("title", ""),
+        "content": data.get("content", ""),
+        "summary": data.get("summary", ""),
+        "url":     data.get("url", ""),
+        "image_url": data.get("image", ""),
+        "route_tags": {"event": data.get("event", "")},
+        "tags":       data,
+    }
+</pre>
+{% endraw %}
+    <div id="copy-toast" class="text-success small mt-1" style="display:none;"><i class="bi bi-check-circle"></i> 已复制到剪贴板</div>
+  </div>
+</div>
+
+<div class="modal fade" id="parserModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">上传解析器</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div class="mb-3"><label class="form-label">名称</label><input class="form-control" id="p-name"></div>
+      <div class="mb-3"><label class="form-label">描述</label><input class="form-control" id="p-desc"></div>
+      <div class="mb-3"><label class="form-label">.py 文件</label><input class="form-control" type="file" id="p-file" accept=".py"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+      <button class="btn btn-primary" onclick="uploadParser()">上传</button>
+    </div>
+  </div></div>
+</div>
+
+<div class="modal fade" id="parserViewModal" tabindex="-1">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title" id="pv-title">查看解析器</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <textarea id="pv-content" class="form-control font-monospace" rows="20" style="font-size:0.85rem;"></textarea>
+    </div>
+    <div class="modal-footer">
+      <span id="pv-save-msg" class="text-success me-auto" style="display:none;"><i class="bi bi-check-circle"></i> 已保存</span>
+      <button class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+      <button class="btn btn-primary" onclick="saveParserContent()"><i class="bi bi-save"></i> 保存</button>
+    </div>
+  </div></div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+{% raw %}
+<script>
+function loadParsers() {
+  fetch('/api/parsers').then(r=>r.json()).then(data=>{
+    let html = '';
+    data.forEach(p=>{
+      html += `<div class="card mb-2"><div class="card-body py-2 d-flex justify-content-between align-items-center">
+        <div><strong>${p.name}</strong> <code>${p.filename}</code>
+          ${p.exists?'<span class="badge bg-success ms-1">文件存在</span>':'<span class="badge bg-danger ms-1">文件缺失</span>'}
+          <small class="text-muted ms-2">${p.description||''}</small></div>
+        <div>
+          <button class="btn btn-sm btn-outline-secondary" onclick="viewParser(${p.id})"><i class="bi bi-eye"></i></button>
+          <button class="btn btn-sm btn-outline-info" onclick="window.open('/api/export/parser/'+${p.id}+'?t='+Date.now(),'_blank')" title="下载 .py"><i class="bi bi-download"></i></button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteParser(${p.id})"><i class="bi bi-trash"></i></button>
+        </div></div></div>`;
+    });
+    document.getElementById('parsers-list').innerHTML = html||'<div class="text-muted">暂无解析器</div>';
+  });
+}
+function uploadParser() {
+  let name = document.getElementById('p-name').value;
+  let desc = document.getElementById('p-desc').value;
+  let file = document.getElementById('p-file').files[0];
+  if(!name||!file) return alert('请填写名称并选择文件');
+  let fd = new FormData();
+  fd.append('name',name); fd.append('description',desc); fd.append('file',file);
+  fetch('/api/parsers',{method:'POST',body:fd}).then(r=>r.json()).then(res=>{
+    if(res.error) return alert(res.error);
+    bootstrap.Modal.getInstance(document.getElementById('parserModal')).hide();
+    loadParsers();
+  });
+}
+let editingParserId = null;
+
+function viewParser(id) {
+  editingParserId = id;
+  fetch('/api/parsers/'+id+'/content').then(r=>r.json()).then(res=>{
+    document.getElementById('pv-title').textContent = res.filename;
+    document.getElementById('pv-content').value = res.content;
+    document.getElementById('pv-save-msg').style.display = 'none';
+    new bootstrap.Modal(document.getElementById('parserViewModal')).show();
+  });
+}
+function saveParserContent() {
+  if (!editingParserId) return;
+  let content = document.getElementById('pv-content').value;
+  fetch('/api/parsers/'+editingParserId+'/content', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({content: content})
+  }).then(r => r.json()).then(res => {
+    if (res.error) return alert(res.error);
+    document.getElementById('pv-save-msg').style.display = 'inline';
+    setTimeout(function(){ document.getElementById('pv-save-msg').style.display = 'none'; }, 2000);
+  });
+}
+function copyExampleCode() {
+  const code = document.getElementById('example-code').innerText;
+  const ta = document.createElement('textarea');
+  ta.value = code;
+  ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select(); ta.setSelectionRange(0, 99999);
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+  const toast = document.getElementById('copy-toast');
+  toast.style.display = 'block';
+  setTimeout(function(){ toast.style.display = 'none'; }, 2000);
+}
+function deleteParser(id) {
+  if(!confirm('确定删除此解析器？文件也会被删除。')) return;
+  fetch('/api/parsers/'+id,{method:'DELETE'}).then(()=>loadParsers());
+}
+loadParsers();
+
+function exportItem(type, id) {
+  if (type === 'parser') {
+    window.open('/api/export/parser/' + id + '?t=' + Date.now(), '_blank');
+    return;
+  }
+  fetch('/api/export/' + type + '/' + id)
+    .then(r => r.json())
+    .then(data => {
+      const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = type + '_' + id + '.json';
+      a.click();
+    });
+}
+</script>
+</script>
+{% endraw %}
+{% endblock %}

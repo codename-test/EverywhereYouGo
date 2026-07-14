@@ -1,0 +1,361 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center mb-3">
+    <h2><i class="bi bi-file-text"></i> 推送模板</h2>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#tplModal" onclick="resetTplForm()">
+        <i class="bi bi-plus-lg"></i> 新建模板
+    </button>
+</div>
+
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> 定义消息推送格式。选择解析器后可查看该解析器产出的所有可用变量。
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>名称</th>
+                    <th>引擎</th>
+                    <th>标题模板</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="templatesTable">
+                {% for t in templates %}
+                <tr data-template-id="{{ t.id }}">
+                    <td>{{ t.name }}</td>
+                    <td><span class="badge bg-info">{{ t.engine }}</span></td>
+                    <td><small class="text-muted">{{ (t.title_tpl or '')[:50] }}</small></td>
+                    <td>
+                        <button class="btn btn-icon btn-outline-primary btn-sm" onclick="openEditTemplate({{ t.id }})" title="编辑"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-icon btn-outline-info btn-sm" onclick="exportItem('template',{{ t.id }})" title="导出"><i class="bi bi-download"></i></button>
+                        <button class="btn btn-icon btn-outline-danger btn-sm" onclick="deleteTemplate({{ t.id }})" title="删除"><i class="bi bi-trash"></i></button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 新建/编辑模板弹窗 -->
+<div class="modal fade" id="tplModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="tplModalTitle">新建模板</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="tplForm" onsubmit="return false">
+                    <input type="hidden" id="editTplId">
+                    
+                    <div class="row">
+                        <div class="col-md-8">
+                            <div class="mb-3">
+                                <label class="form-label">模板名称</label>
+                                <input type="text" class="form-control" id="editTplName" placeholder="例如：标准推送模板" required>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">模板引擎</label>
+                                <select class="form-select" id="editTplEngine" onchange="onEngineChange()">
+                                    <option value="jinja2">Jinja2</option>
+                                    <option value="simple">Simple</option>
+                                </select>
+                                <div class="form-text">Jinja2 支持条件/循环，Simple 仅替换变量</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">参考解析器</label>
+                        <select class="form-select" id="editTplParser" onchange="loadParserVars()">
+                            <option value="">-- 选择解析器查看可用变量 --</option>
+                            {% for p in parsers %}
+                            <option value="{{ p.id }}">{{ p.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">选择解析器后，下方将展示该解析器产出的所有可用变量</div>
+                    </div>
+                    
+                    <!-- 变量展示区 -->
+                    <div id="parserVarsSection" style="display:none" class="mb-3">
+                        <div class="card bg-light">
+                            <div class="card-header py-2">
+                                <strong><i class="bi bi-braces"></i> 可用变量</strong>
+                                <small class="text-muted ms-2">点击变量名可复制到剪贴板</small>
+                            </div>
+                            <div class="card-body py-2">
+                                <div id="parserVarsList"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">标题模板</label>
+                        <input type="text" class="form-control" id="editTplTitle" placeholder="消息标题">
+                        <div class="form-text">支持变量替换，如 <code>{% raw %}{{ msg.title }}{% endraw %}</code> 或 <code>{title}</code></div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">内容模板</label>
+                        <textarea class="form-control" id="editTplContent" rows="8" placeholder="消息正文内容"></textarea>
+                        <div class="form-text">支持多行文本和变量替换</div>
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="testTplRender()">
+                            <i class="bi bi-play"></i> 测试渲染
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveTemplate()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast 容器 -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div id="toast" class="toast" role="alert">
+        <div class="toast-header">
+            <strong class="me-auto" id="toast-title">提示</strong>
+            <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+        </div>
+        <div class="toast-body" id="toast-body"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const templatesData = {{ templates|tojson }};
+const parsersData = {{ parsers|tojson }};
+</script>
+<script>
+{% raw %}
+
+function showToast(message, type = 'success') {
+    const toast = document.getElementById('toast');
+    const title = document.getElementById('toast-title');
+    const body = document.getElementById('toast-body');
+    
+    title.textContent = type === 'success' ? '成功' : type === 'danger' ? '错误' : '提示';
+    body.textContent = message;
+    toast.className = `toast bg-${type === 'success' ? 'success' : type === 'danger' ? 'danger' : 'info'} text-white`;
+    
+    const bsToast = new bootstrap.Toast(toast);
+    bsToast.show();
+}
+
+function resetTplForm() {
+    document.getElementById('tplModalTitle').textContent = '新建模板';
+    document.getElementById('editTplId').value = '';
+    document.getElementById('editTplName').value = '';
+    document.getElementById('editTplEngine').value = 'jinja2';
+    document.getElementById('editTplParser').value = '';
+    document.getElementById('editTplTitle').value = '';
+    document.getElementById('editTplContent').value = '';
+    document.getElementById('parserVarsSection').style.display = 'none';
+    onEngineChange();
+}
+
+function onEngineChange() {
+    const engine = document.getElementById('editTplEngine').value;
+    const titleInput = document.getElementById('editTplTitle');
+    const contentInput = document.getElementById('editTplContent');
+    
+    if (engine === 'jinja2') {
+        if (!titleInput.value) titleInput.placeholder = '{{ msg.title }}';
+        if (!contentInput.value) contentInput.placeholder = '{{ msg.content }}';
+    } else {
+        if (!titleInput.value) titleInput.placeholder = '{title}';
+        if (!contentInput.value) contentInput.placeholder = '{content}';
+    }
+}
+
+function loadParserVars() {
+    const parserId = document.getElementById('editTplParser').value;
+    const varsSection = document.getElementById('parserVarsSection');
+    const varsList = document.getElementById('parserVarsList');
+    
+    if (!parserId) {
+        varsSection.style.display = 'none';
+        return;
+    }
+    
+    // 调用 API 获取解析器变量
+    fetch(`/api/parsers/${parserId}/variables`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.ok) {
+                const errMsg = data.error || '未知错误';
+                varsList.innerHTML = `<div class="text-danger">获取变量失败: ${errMsg}</div>`;
+                varsSection.style.display = 'block';
+                return;
+            }
+            
+            const vars = data.variables || [];
+            if (vars.length === 0) {
+                varsList.innerHTML = '<div class="text-muted">该解析器未返回任何变量</div>';
+                varsSection.style.display = 'block';
+                return;
+            }
+            
+            // 渲染变量表格
+            let html = '<table class="table table-sm table-bordered mb-0">';
+            html += '<thead><tr><th>变量路径</th><th>类型</th><th>示例值</th></tr></thead>';
+            html += '<tbody>';
+            
+            vars.forEach(v => {
+                const varPath = v.path;
+                const jinja2Var = `{{ ${varPath} }}`;
+                const simpleVar = `{${varPath.split('.').pop()}}`;
+                
+                html += `<tr>`;
+                html += `<td><code style="cursor:pointer" onclick="copyVar('${jinja2Var}', '${simpleVar}')">${varPath}</code></td>`;
+                html += `<td><span class="badge bg-secondary">${v.type}</span></td>`;
+                html += `<td><small class="text-muted">${v.sample || '-'}</small></td>`;
+                html += `</tr>`;
+            });
+            
+            html += '</tbody></table>';
+            html += '<div class="form-text mt-2">💡 点击变量路径可复制到剪贴板（Jinja2 格式）</div>';
+            
+            varsList.innerHTML = html;
+            varsSection.style.display = 'block';
+        })
+        .catch(err => {
+            varsList.innerHTML = `<div class="text-danger">请求失败: ${err}</div>`;
+            varsSection.style.display = 'block';
+        });
+}
+
+function copyVar(jinja2Var, simpleVar) {
+    const engine = document.getElementById('editTplEngine').value;
+    const textToCopy = engine === 'jinja2' ? jinja2Var : simpleVar;
+    const ta = document.createElement('textarea');
+    ta.value = textToCopy;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select(); ta.setSelectionRange(0, 99999);
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    showToast('已复制: ' + textToCopy, 'success');
+}
+
+function openEditTemplate(id) {
+    const t = templatesData.find(x => x.id === id);
+    if (!t) return;
+    
+    document.getElementById('tplModalTitle').textContent = '编辑模板';
+    document.getElementById('editTplId').value = t.id;
+    document.getElementById('editTplName').value = t.name;
+    document.getElementById('editTplEngine').value = t.engine;
+    document.getElementById('editTplTitle').value = t.title_tpl || '';
+    document.getElementById('editTplContent').value = t.content_tpl || '';
+    document.getElementById('parserVarsSection').style.display = 'none';
+    
+    new bootstrap.Modal(document.getElementById('tplModal')).show();
+}
+
+function saveTemplate() {
+    const id = document.getElementById('editTplId').value;
+    const data = {
+        name: document.getElementById('editTplName').value,
+        engine: document.getElementById('editTplEngine').value,
+        title_tpl: document.getElementById('editTplTitle').value,
+        content_tpl: document.getElementById('editTplContent').value
+    };
+    
+    const url = id ? `/api/templates/${id}` : '/api/templates';
+    const method = id ? 'PUT' : 'POST';
+    
+    fetch(url, {
+        method: method,
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(() => {
+        showToast('保存成功');
+        setTimeout(() => location.reload(), 500);
+    })
+    .catch(err => showToast('保存失败：' + err, 'danger'));
+}
+
+function testTplRender() {
+    const engine = document.getElementById('editTplEngine').value;
+    const title_tpl = document.getElementById('editTplTitle').value;
+    const content_tpl = document.getElementById('editTplContent').value;
+    
+    if (!title_tpl && !content_tpl) {
+        showToast('请先填写标题或内容模板', 'danger');
+        return;
+    }
+    
+    // 构造测试数据
+    const msg = {
+        title: '测试标题',
+        content: '测试内容正文',
+        summary: '这是摘要',
+        url: 'https://example.com',
+        image_url: '',
+        route_tags: {event: 'test', media_type: 'Movie'},
+        tags: {name: '测试电影', year: '2024', overview: '这是一个测试电影的简介...'}
+    };
+    
+    fetch('/api/templates/test-render', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({engine, title_tpl, content_tpl, msg})
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.ok) {
+            const result = res.result;
+            let msg = '【渲染结果】\n\n';
+            msg += `标题: ${result.title}\n\n`;
+            msg += `内容:\n${result.content}`;
+            alert(msg);
+        } else {
+            showToast('渲染失败: ' + (res.error || '未知错误'), 'danger');
+        }
+    })
+    .catch(err => showToast('测试失败: ' + err, 'danger'));
+}
+
+function deleteTemplate(id) {
+    if (!confirm('确定删除此模板？')) return;
+    fetch(`/api/templates/${id}`, {method: 'DELETE'})
+    .then(r => r.json())
+    .then(() => {
+        showToast('已删除');
+        setTimeout(() => location.reload(), 500);
+    })
+    .catch(err => showToast('删除失败：' + err, 'danger'));
+}
+
+document.addEventListener('DOMContentLoaded', onEngineChange);
+
+function exportItem(type, id) {
+  fetch('/api/export/' + type + '/' + id)
+    .then(r => r.json())
+    .then(data => {
+      const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = type + '_' + id + '.json';
+      a.click();
+    });
+}
+</script>
+{% endraw %}
+{% endblock %}

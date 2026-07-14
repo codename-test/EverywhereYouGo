@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">消息记录</h4>
+        <div>
+            <button class="btn btn-outline-warning btn-sm me-2" onclick="flushQueue()" id="flushBtn">
+                刷新队列 <span class="badge bg-warning text-dark" id="pendingBadge">0</span>
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="loadMessages()">刷新</button>
+        </div>
+    </div>
+
+    <!-- 筛选栏 -->
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <form class="row g-2 align-items-end" onsubmit="loadMessages();return false">
+                <div class="col-auto">
+                    <label class="form-label small mb-0">数据源</label>
+                    <select class="form-select form-select-sm" id="filterSource">
+                        <option value="">全部</option>
+                        {% for s in sources %}
+                        <option value="{{ s.id }}">{{ s.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label small mb-0">状态</label>
+                    <select class="form-select form-select-sm" id="filterStatus">
+                        <option value="">全部</option>
+                        <option value="RECEIVED">RECEIVED</option>
+                        <option value="PARSED">PARSED</option>
+                        <option value="SENDING">SENDING</option>
+                        <option value="PENDING">PENDING</option>
+                        <option value="SUCCESS">SUCCESS</option>
+                        <option value="FAILED">FAILED</option>
+                        <option value="DISCARDED">DISCARDED</option>
+                        <option value="NO_MATCH">NO_MATCH</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label small mb-0">通道类型</label>
+                    <select class="form-select form-select-sm" id="filterChannel">
+                        <option value="">全部</option>
+                        <option value="wecom">企业微信</option>
+                        <option value="wecom_app">企业微信应用</option>
+                        <option value="dingtalk">钉钉</option>
+                        <option value="bark">Bark</option>
+                        <option value="gotify">Gotify</option>
+                        <option value="pushdeer">PushDeer</option>
+                        <option value="serverchan">Server酱</option>
+                        <option value="custom">自定义</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-sm btn-primary">筛选</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 消息表格 -->
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle" id="msgTable">
+            <thead class="table-light">
+                <tr>
+                    <th style="width:50px">ID</th>
+                    <th style="width:80px">Trace</th>
+                    <th style="width:80px">来源</th>
+                    <th style="width:90px">状态</th>
+                    <th>通道结果</th>
+                    <th style="width:50px">操作</th>
+                </tr>
+            </thead>
+            <tbody id="msgBody">
+                <tr><td colspan="6" class="text-center text-muted">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 分页 -->
+    <nav>
+        <ul class="pagination pagination-sm justify-content-center" id="pagination"></ul>
+    </nav>
+</div>
+
+<script>
+const PAGE_SIZE = 50;
+let currentPage = 0;
+let totalMessages = 0;
+
+function loadMessages(page = 0) {
+    currentPage = page;
+    const params = new URLSearchParams({
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
+        source_id: document.getElementById('filterSource').value,
+        status: document.getElementById('filterStatus').value,
+        channel_type: document.getElementById('filterChannel').value,
+    });
+
+    fetch('/api/messages?' + params)
+        .then(r => r.json())
+        .then(data => {
+            totalMessages = data.total;
+            document.getElementById('pendingBadge').textContent = data.pending;
+            renderMessages(data.messages);
+            renderPagination();
+        });
+}
+
+function renderMessages(msgs) {
+    const tbody = document.getElementById('msgBody');
+    if (!msgs.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">暂无消息</td></tr>';
+        return;
+    }
+    tbody.innerHTML = msgs.map(m => {
+        const statusClass = {
+            'RECEIVED': 'secondary', 'PARSED': 'info', 'SENDING': 'warning',
+            'PENDING': 'warning', 'SUCCESS': 'success', 'FAILED': 'danger',
+            'DISCARDED': 'secondary', 'NO_MATCH': 'secondary'
+        }[m.status] || 'secondary';
+        const cr = parseChannelResults(m.channel_results);
+        const trace = m.trace_id ? m.trace_id.substring(0, 8) : '?';
+        const actions = m.status === 'FAILED'
+            ? `<button class="btn btn-outline-warning btn-sm" onclick="retryMsg(${m.id})" title="重发">↻</button>`
+            : '';
+        return `<tr onclick="toggleRow(${m.id})" style="cursor:pointer">
+            <td>${m.id}</td>
+            <td><code>${trace}</code></td>
+            <td>${escHtml(m.source_name)||'?'}</td>
+            <td><span class="badge bg-${statusClass}">${m.status}</span></td>
+            <td class="small">${cr}</td>
+            <td>${actions}</td>
+        </tr>
+        <tr id="detail-${m.id}" style="display:none">
+            <td colspan="6" class="bg-light small">
+                <div class="p-2">
+                    ${m.error ? '<div class="text-danger mb-1"><b>错误:</b> ' + escHtml(m.error) + '</div>' : ''}
+                    <div class="mb-1"><b>时间:</b> ${m.created_at}</div>
+                    ${m.dedup_key ? '<div class="mb-1"><b>去重键:</b> ' + escHtml(m.dedup_key) + '</div>' : ''}
+                    ${m.raw_body ? '<details class="mb-1"><summary><b>原始数据</b></summary><pre class="mt-1 p-2 bg-white rounded" style="max-height:200px;overflow:auto;font-size:11px">' + escHtml(m.raw_body) + '</pre></details>' : ''}
+                    ${m.msg_json ? '<details class="mb-1"><summary><b>解析结果</b></summary><pre class="mt-1 p-2 bg-white rounded" style="max-height:200px;overflow:auto;font-size:11px">' + escHtml(fmtJson(m.msg_json)) + '</pre></details>' : ''}
+                    ${m.channel_results ? '<details class="mb-1"><summary><b>通道详情</b></summary><pre class="mt-1 p-2 bg-white rounded" style="max-height:200px;overflow:auto;font-size:11px">' + escHtml(fmtJson(m.channel_results)) + '</pre></details>' : ''}
+                </div>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+function parseChannelResults(cr) {
+    if (!cr) return '-';
+    try {
+        const arr = JSON.parse(cr);
+        return arr.map(r => {
+            const icon = r.ok ? '✅' : '❌';
+            return `${icon} ${r.ch_name}`;
+        }).join(' ');
+    } catch(e) { return cr; }
+}
+
+function toggleRow(id) {
+    const row = document.getElementById('detail-' + id);
+    if (row) row.style.display = row.style.display === 'none' ? '' : 'none';
+}
+
+function retryMsg(id) {
+    if (!confirm('重发这条消息？')) return;
+    fetch('/api/messages/' + id + '/retry?mode=original', {method:'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.ok) loadMessages(currentPage);
+            else alert('重发失败: ' + (data.error || 'unknown'));
+        });
+}
+
+function flushQueue() {
+    fetch('/api/queue/flush', {method:'POST'})
+        .then(r => r.json())
+        .then(data => {
+            alert('已刷新 ' + data.count + ' 条消息');
+            loadMessages(currentPage);
+        });
+}
+
+function renderPagination() {
+    const pages = Math.ceil(totalMessages / PAGE_SIZE);
+    const ul = document.getElementById('pagination');
+    if (pages <= 1) { ul.innerHTML = ''; return; }
+    let html = '';
+    const start = Math.max(0, currentPage - 2);
+    const end = Math.min(pages, currentPage + 3);
+    for (let i = start; i < end; i++) {
+        html += `<li class="page-item ${i === currentPage ? 'active' : ''}">
+            <a class="page-link" href="#" onclick="loadMessages(${i});return false">${i + 1}</a></li>`;
+    }
+    ul.innerHTML = html;
+}
+
+function escHtml(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function fmtJson(s) {
+    try { return JSON.stringify(JSON.parse(s), null, 2); }
+    catch(e) { return s; }
+}
+
+loadMessages();
+</script>
+{% endblock %}

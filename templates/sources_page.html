@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="bi bi-inbox"></i> 数据源管理</h4>
+<p class="text-muted">每个数据源监听一个端口，接收外部推送的原始数据。</p>
+
+<button class="btn btn-primary btn-sm mb-3" data-bs-toggle="modal" data-bs-target="#sourceModal" onclick="resetSourceForm()">
+  <i class="bi bi-plus-lg"></i> 新建数据源
+</button>
+
+<div id="sources-list"></div>
+
+<!-- Modal -->
+<div class="modal fade" id="sourceModal" tabindex="-1">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">数据源配置</h5>
+      <button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <input type="hidden" id="src-id">
+      <div class="row g-3 mb-3">
+        <div class="col-md-6"><label class="form-label">名称</label>
+          <input class="form-control" id="src-name"></div>
+        <div class="col-md-3"><label class="form-label">监听端口</label>
+          <input class="form-control" type="number" id="src-port" min="1024" max="65535"></div>
+        <div class="col-md-3"><label class="form-label">解析器</label>
+          <select class="form-select" id="src-parser"><option value="">-- 选择 --</option>
+            {% for p in parsers %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+          </select></div>
+      </div>
+      <div class="form-check mb-3">
+        <input class="form-check-input" type="checkbox" id="src-enabled" checked>
+        <label class="form-check-label">启用</label>
+      </div>
+
+      <hr><h6>渠道绑定 <button class="btn btn-outline-primary btn-sm ms-2" onclick="addBindingRow()"><i class="bi bi-plus"></i></button>
+        <div class="row g-2 mt-1 mb-1">
+          <div class="col-md-3"><small class="text-muted">推送通道</small></div>
+          <div class="col-md-3"><small class="text-muted">推送模板</small></div>
+          <div class="col-md-2"><small class="text-muted">条件表达式 <i class="bi bi-question-circle" title="留空=无条件推送。根据解析器的 route_tags 做条件匹配，如 event == 'library.new' 仅新入库时推送，media_type == 'Movie' 仅电影推送"></i></small></div>
+          <div class="col-md-1"><small class="text-muted">优先级</small></div>
+          <div class="col-md-1 text-center"><small class="text-muted" title="紧急通道：DND 时段也推送">紧急</small></div>
+          <div class="col-md-1"></div>
+        </div>
+      </h6>
+      <div id="bindings-container"></div>
+
+      <hr><h6>样本数据 <button class="btn btn-outline-secondary btn-sm ms-2" onclick="refreshSamples()"><i class="bi bi-arrow-repeat"></i> 刷新</button></h6>
+      <div id="samples-list"><span class="text-muted">暂无样本数据</span></div>
+      <div id="parse-result" class="mt-2" style="display:none;"></div>
+      <div class="mt-2">
+        <button class="btn btn-info btn-sm" onclick="testParse()"><i class="bi bi-play"></i> 测试解析</button>
+        <button class="btn btn-warning btn-sm ms-1" onclick="testPush()"><i class="bi bi-send"></i> 测试推送</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+      <button class="btn btn-primary" onclick="saveSource()">保存</button>
+    </div>
+  </div></div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+{% raw %}
+let SOURCES = [];
+{% endraw %}
+let PARSERS = {{ parsers|tojson }};
+let CHANNELS = {{ channels|tojson }};
+let TEMPLATES = {{ templates|tojson }};
+let SC_BINDINGS = {{ sc|tojson }};
+{% raw %}
+let samples = [];
+let editId = null;
+
+function resetSourceForm() {
+  editId = null;
+  document.getElementById('src-id').value = '';
+  document.getElementById('src-name').value = '';
+  document.getElementById('src-port').value = '';
+  document.getElementById('src-parser').value = '';
+  document.getElementById('src-enabled').checked = true;
+  document.getElementById('bindings-container').innerHTML = '';
+  document.getElementById('samples-list').innerHTML = '<span class="text-muted">暂无样本数据</span>';
+  document.getElementById('parse-result').style.display = 'none';
+  samples = [];
+}
+function loadSources() {
+  fetch('/api/sources').then(r=>r.json()).then(data=>{
+    SOURCES = data;
+    renderSources();
+  });
+}
+function renderSources() {
+  let html = '';
+  SOURCES.forEach(s=>{
+    let sc = SC_BINDINGS.filter(x=>x.source_id==s.id);
+    let chNames = sc.map(x=>{let c=CHANNELS.find(y=>y.id==x.channel_id); return c?c.name:'?';}).join(', ');
+    html += `<div class="card mb-2"><div class="card-body py-2">
+      <div class="d-flex justify-content-between align-items-center">
+        <div><strong>${s.name}</strong>
+          <span class="badge bg-info ms-2">:${s.port}</span>
+          <small class="text-muted ms-2">解析器: ${s.parser_name||'无'}</small>
+          <small class="text-muted ms-2">渠道: ${chNames||'无'}</small></div>
+        <div>
+          <span class="badge bg-${s.enabled?'success':'secondary'} me-2">${s.enabled?'运行中':'已停用'}</span>
+          <button class="btn btn-sm btn-outline-secondary" onclick="editSource(${s.id})"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-outline-info" onclick="exportItem('source',${s.id})" title="导出"><i class="bi bi-download"></i></button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteSource(${s.id})"><i class="bi bi-trash"></i></button>
+        </div></div></div></div>`;
+  });
+  if(!html) html='<div class="text-muted">暂无数据源</div>';
+  document.getElementById('sources-list').innerHTML = html;
+}
+function editSource(id) {
+  let s = SOURCES.find(x=>x.id==id);
+  if(!s) return;
+  editId = id;
+  document.getElementById('src-id').value = id;
+  document.getElementById('src-name').value = s.name;
+  document.getElementById('src-port').value = s.port;
+  document.getElementById('src-parser').value = s.parser_id||'';
+  document.getElementById('src-enabled').checked = s.enabled;
+  // 加载绑定
+  let bs = SC_BINDINGS.filter(x=>x.source_id==id);
+  let bc = document.getElementById('bindings-container');
+  bc.innerHTML = '';
+  bs.forEach(b=>addBindingRow(b));
+  // 样本
+  refreshSamples();
+  new bootstrap.Modal(document.getElementById('sourceModal')).show();
+}
+function deleteSource(id) {
+  if(!confirm('确定删除此数据源？')) return;
+  fetch('/api/sources/'+id,{method:'DELETE'}).then(()=>loadSources());
+}
+function saveSource() {
+  let data = {
+    name: document.getElementById('src-name').value,
+    port: parseInt(document.getElementById('src-port').value),
+    parser_id: document.getElementById('src-parser').value || null,
+    enabled: document.getElementById('src-enabled').checked ? 1 : 0
+  };
+  if(!data.name||!data.port) return alert('请填写名称和端口');
+  let method, url;
+  if(editId) { method='PUT'; url='/api/sources/'+editId; }
+  else { method='POST'; url='/api/sources'; }
+  fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
+  .then(r=>r.json()).then(res=>{
+    if(res.error) return alert(res.error);
+    // 保存绑定
+    if(editId) saveBindings(editId);
+    bootstrap.Modal.getInstance(document.getElementById('sourceModal')).hide();
+    loadSources();
+  });
+}
+function addBindingRow(data) {
+  data = data || {channel_id:'',template_id:'',condition_expr:'',priority:0,urgent:0};
+  let bc = document.getElementById('bindings-container');
+  let div = document.createElement('div');
+  div.className = 'row g-2 mb-2 align-items-end';
+  let chOpts = CHANNELS.map(c=>`<option value="${c.id}" ${c.id==data.channel_id?'selected':''}>${c.name}</option>`).join('');
+  let tOpts = TEMPLATES.map(t=>`<option value="${t.id}" ${t.id==data.template_id?'selected':''}>${t.name}</option>`).join('');
+  let urgentChecked = data.urgent ? 'checked' : '';
+  div.innerHTML = `<div class="col-md-3"><select class="form-select form-select-sm ch-sel">${chOpts}</select></div>
+    <div class="col-md-3"><select class="form-select form-select-sm tpl-sel">${tOpts}</select></div>
+    <div class="col-md-2"><input class="form-control form-control-sm cond" placeholder="条件表达式" value="${data.condition_expr||''}" title="留空=所有消息都推送到此渠道。示例: event == 'library.new' 仅新媒体入库时推送；media_type == 'Movie' 仅电影推送"></div>
+    <div class="col-md-1"><input class="form-control form-control-sm pri" type="number" placeholder="优先级" value="${data.priority||0}"></div>
+    <div class="col-md-1 text-center"><div class="form-check"><input class="form-check-input urgent-chk" type="checkbox" ${urgentChecked} title="紧急通道：DND 时段也推送"><label class="form-check-label"><small>🔥</small></label></div></div>
+    <div class="col-md-1"><button class="btn btn-sm btn-outline-danger" onclick="this.closest('.row').remove()">&times;</button></div>`;
+  bc.appendChild(div);
+}
+function saveBindings(sourceId) {
+  let rows = document.querySelectorAll('#bindings-container .row');
+  rows.forEach(row=>{
+    let chId = parseInt(row.querySelector('.ch-sel').value);
+    let tId = parseInt(row.querySelector('.tpl-sel').value);
+    let cond = row.querySelector('.cond').value;
+    let pri = parseInt(row.querySelector('.pri').value)||0;
+    let urg = row.querySelector('.urgent-chk').checked ? 1 : 0;
+    if(!chId||!tId) return;
+    fetch('/api/sources/'+sourceId+'/channels',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({channel_id:chId,template_id:tId,condition_expr:cond,priority:pri,urgent:urg})});
+  });
+}
+function refreshSamples() {
+  let sid = editId||document.getElementById('src-id').value;
+  if(!sid) return;
+  fetch('/api/sources/'+sid+'/samples?count=3').then(r=>r.json()).then(data=>{
+    samples = data;
+    let html = '';
+    data.forEach((s,i)=>{
+      let checked = (i===0) ? 'checked' : '';
+      html += `<div class="card mb-2"><div class="card-body py-1">
+        <div class="form-check">
+          <input class="form-check-input sample-radio" type="radio" name="sampleSel" value="${i}" ${checked} id="sample-${i}">
+          <label class="form-check-label w-100" for="sample-${i}">
+            <small class="text-muted">样本 #${i+1}</small>
+            <pre class="mb-0 small">${s.body.replace(/</g,'&lt;')}</pre>
+          </label>
+        </div></div></div>`;
+    });
+    document.getElementById('samples-list').innerHTML = html||'<span class="text-muted">暂无样本数据</span>';
+  });
+}
+function getActiveSample() {
+  let sel = document.querySelector('input[name=\"sampleSel\"]:checked');
+  if (!sel) return null;
+  return samples[parseInt(sel.value)];
+}
+function testParse() {
+  let sid = editId||document.getElementById('src-id').value;
+  let s = getActiveSample();
+  if(!sid||!s) return alert('请先勾选一个样本');
+  fetch('/api/sources/'+sid+'/test-parse',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(s)})
+  .then(r=>r.json()).then(res=>{
+    let el = document.getElementById('parse-result');
+    el.style.display = 'block';
+    if(res.ok) {
+      el.innerHTML = `<div class="alert alert-success mb-0"><b>解析成功</b><pre class="mb-0 mt-1 small">${JSON.stringify(res.result,null,2).replace(/</g,'&lt;')}</pre>
+        <small class="text-muted">可用变量: ${res.variables.map(function(v){var lb=String.fromCharCode(123,123);var rb=String.fromCharCode(125,125);return '<code>'+lb+v.path+rb+'</code>';}).join(' ')}</small></div>`;
+    } else {
+      el.innerHTML = `<div class="alert alert-danger mb-0"><b>解析失败</b><pre class="mb-0 mt-1 small">${res.error.replace(/</g,'&lt;')}</pre></div>`;
+    }
+  });
+}
+function testPush() {
+  let sid = editId||document.getElementById('src-id').value;
+  let s = getActiveSample();
+  if(!sid||!s) return alert('请先勾选一个样本');
+  fetch('/api/sources/'+sid+'/test-push',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(s)})
+  .then(r=>r.json()).then(res=>{
+    alert(res.ok?'推送成功':'推送失败，请查看日志');
+  });
+}
+loadSources();
+
+function exportItem(type, id) {
+  fetch('/api/export/' + type + '/' + id)
+    .then(r => r.json())
+    .then(data => {
+      const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = type + '_' + id + '.json';
+      a.click();
+    });
+}
+</script>
+</script>
+{% endraw %}
+{% endblock %}

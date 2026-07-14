@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4><i class="bi bi-journal"></i> 系统日志</h4>
+    <div>
+        <select class="form-select form-select-sm d-inline-block w-auto me-2" id="logLevelFilter" onchange="loadLogs()" title="筛选显示，不影响写入">
+            <option value="">全部级别</option>
+            <option value="DEBUG">DEBUG</option>
+            <option value="INFO" selected>INFO</option>
+            <option value="WARNING">WARNING</option>
+            <option value="ERROR">ERROR</option>
+            <option value="CRITICAL">CRITICAL</option>
+        </select>
+        <button class="btn btn-outline-danger btn-sm" onclick="clearLogs()">
+            <i class="bi bi-trash"></i> 清空日志
+        </button>
+    </div>
+</div>
+<div class="table-responsive">
+    <table class="table table-sm table-hover font-monospace small">
+        <thead>
+            <tr>
+                <th style="width:160px">时间</th>
+                <th style="width:80px">级别</th>
+                <th style="width:120px">模块</th>
+                <th>消息 <small class="text-muted">(点击展开)</small></th>
+            </tr>
+        </thead>
+        <tbody id="logTableBody">
+            <tr><td colspan="4" class="text-center text-muted">加载中...</td></tr>
+        </tbody>
+    </table>
+</div>
+<div class="modal fade" id="logDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title">日志详情</h6>
+                <div>
+                    <button class="btn btn-sm btn-outline-primary me-2" onclick="copyLogDetail()">
+                        <i class="bi bi-clipboard"></i> 复制
+                    </button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <pre id="logDetailContent" class="bg-light p-3 rounded" style="white-space:pre-wrap;word-break:break-all;font-size:0.85rem;max-height:60vh;overflow-y:auto"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+{% raw %}
+var levelColors = {DEBUG: 'secondary', INFO: 'primary', WARNING: 'warning', ERROR: 'danger', CRITICAL: 'dark'};
+var currentLogMessage = '';
+var _logMessages = [];
+
+function loadLogs() {
+    var level = document.getElementById('logLevelFilter').value;
+    var url = level ? '/api/logs?level=' + level + '&limit=200' : '/api/logs?limit=200';
+    fetch(url).then(function(r){return r.json()}).then(function(logs){
+        var tbody = document.getElementById('logTableBody');
+        if (!logs || logs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">暂无日志</td></tr>';
+            return;
+        }
+        _logMessages = logs.map(function(l){return l.message || ''});
+        tbody.innerHTML = logs.map(function(l, idx){
+            var ts = l.timestamp ? l.timestamp.replace('T', ' ').substring(0, 19) : '';
+            var color = levelColors[l.level] || 'secondary';
+            var msg = l.message || '';
+            var shortMsg = msg.length > 100 ? msg.substring(0, 100) + '...' : msg;
+            return '<tr style="cursor:pointer" onclick="showLogDetail(' + idx + ')">' +
+                '<td class="text-nowrap">' + ts + '</td>' +
+                '<td><span class="badge bg-' + color + '">' + (l.level || '') + '</span></td>' +
+                '<td>' + (l.module || '') + '</td>' +
+                '<td style="word-break:break-all">' + shortMsg.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</td>' +
+                '</tr>';
+        }).join('');
+    });
+}
+
+function showLogDetail(idx) {
+    currentLogMessage = _logMessages[idx] || '';
+    document.getElementById('logDetailContent').textContent = currentLogMessage;
+    new bootstrap.Modal(document.getElementById('logDetailModal')).show();
+}
+
+function copyLogDetail() {
+    var ta = document.createElement('textarea');
+    ta.value = currentLogMessage;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select(); ta.setSelectionRange(0, 99999);
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+}
+
+function clearLogs() {
+    if (!confirm('确定要清空所有日志吗？')) return;
+    fetch('/api/logs', {method:'DELETE'}).then(function(){ loadLogs(); });
+}
+
+loadLogs();
+setInterval(loadLogs, 5000);
+</script>
+{% endraw %}
+{% endblock %}
