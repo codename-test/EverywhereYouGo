@@ -201,10 +201,20 @@ function saveSource() {
   fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
   .then(r=>r.json()).then(async res=>{
     if(res.error) return alert(res.error);
+    // 新建时把 editId 设回新 ID
+    if(!editId && res.id) editId = res.id;
     // 保存绑定
     if(editId) await saveBindings(editId);
     bootstrap.Modal.getInstance(document.getElementById('sourceModal')).hide();
-    loadSources();
+    // 刷新全部数据（包括绑定）
+    fetch('/api/sources').then(r=>r.json()).then(sources=>{
+      SOURCES = sources;
+      // 同时刷新 SC_BINDINGS
+      fetch('/api/sources/bindings').then(r=>r.json()).then(bindings=>{
+        SC_BINDINGS = bindings;
+        renderSources();
+      }).catch(()=>renderSources());
+    });
   });
 }
 function addBindingRow(data) {

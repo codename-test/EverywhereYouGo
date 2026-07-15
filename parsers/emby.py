@@ -10,7 +10,6 @@ import json
 def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
     data = json.loads(raw_body)
     
-    # 从 JSON 中提取每个字段，定义明确的变量名
     event = data.get("Event", "")
     name = data.get("Item", {}).get("Name", "")
     media_type = data.get("Item", {}).get("Type", "")
@@ -19,10 +18,8 @@ def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
     server_name = data.get("Server", {}).get("Name", "")
     server_url = data.get("Server", {}).get("Url", "")
     
-    # 选择最合适的字段作为标题
     title = name if name else event
     
-    # 将变量按 Markdown 列表格式组织成内容
     content_lines = [
         f"- **event**: {event}",
         f"- **name**: {name}",
@@ -34,7 +31,6 @@ def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
     ]
     content = "\n".join(content_lines)
     
-    # 返回所有变量（全部转为字符串）
     return {
         "title": str(title),
         "content": str(content),

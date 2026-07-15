@@ -14,16 +14,16 @@ import datetime as dt
 import log
 
 DB_PATH = os.getenv("DB_PATH", "ego.db")
-_local = threading.local()
+_db_lock = threading.Lock()
 
 
 def _conn():
-    if not hasattr(_local, "conn") or _local.conn is None:
-        _local.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        _local.conn.row_factory = sqlite3.Row
-        _local.conn.execute("PRAGMA journal_mode=WAL")
-        _local.conn.execute("PRAGMA foreign_keys=ON")
-    return _local.conn
+    global _conn_singleton
+    if '_conn_singleton' not in globals() or _conn_singleton is None:
+        _conn_singleton = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
+        _conn_singleton.row_factory = sqlite3.Row
+        _conn_singleton.execute("PRAGMA busy_timeout=5000")
+    return _conn_singleton
 
 
 # ═══════════════════════════════════════════════

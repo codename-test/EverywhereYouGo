@@ -81,6 +81,7 @@ def api_create_source():
         return jsonify({"error": "端口已被占用"}), 400
     if source_mgr:
         source_mgr.start_source(sid)
+    import config_manager; config_manager.sync_table("sources")
     return jsonify({"id": sid})
 
 
@@ -96,7 +97,9 @@ def api_update_source(sid):
                              if k in ("name", "port", "parser_id", "enabled")})
     if source_mgr and data.get("enabled", old["enabled"]):
         source_mgr.start_source(sid)
+    import config_manager; config_manager.sync_table("sources")
     return jsonify({"status": "ok"})
+    import config_manager; config_manager.sync_table("channels")
 
 
 # ── Parsers ──────────────────────────────────
@@ -147,6 +150,7 @@ def api_delete_parser(pid):
     if os.path.isfile(filepath):
         os.remove(filepath)
     db.delete_parser(pid)
+    import config_manager; config_manager.sync_table("parsers")
     return jsonify({"status": "ok"})
 
 
@@ -221,6 +225,7 @@ def api_create_channel():
     data = request.json
     cid = db.create_channel(data["name"], data["type"], data.get("config", {}))
     return jsonify({"id": cid})
+    import config_manager; config_manager.sync_table("channels")
 
 
 @app.route("/api/channels/<int:cid>", methods=["PUT"])
@@ -397,6 +402,12 @@ def api_flush_queue():
     return jsonify({"count": total})
 
 
+@app.route("/api/sources/bindings", methods=["GET"])
+def api_all_source_channels():
+    """返回所有渠道绑定。"""
+    return jsonify(db.get_all_source_channels())
+
+
 @app.route("/api/sources/<int:sid>/channels", methods=["POST"])
 def api_save_source_channels(sid):
     """批量保存数据源的渠道绑定（全量替换）。"""
@@ -415,6 +426,7 @@ def api_save_source_channels(sid):
             enabled=item.get("enabled", 1),
             urgent=item.get("urgent", 0),
         )
+    import config_manager; config_manager.sync_table("bindings")
     return jsonify({"status": "ok", "count": len(items)})
 
 
@@ -831,6 +843,87 @@ def _import_execute(data, mode="insert"):
             errors.append(f"Config {k}: {str(e)[:200]}")
 
     return {"status": "ok" if not errors else "partial", "summary": summary, "errors": errors}
+
+
+@app.route("/api/backup", methods=["GET"])
+def api_backup():
+    """打包配置 + 解析器为 ZIP。"""
+    import io, zipfile
+    from config_manager import CONFIG_DIR, _CONFIG_FILES
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, fn in _CONFIG_FILES.items():
+            p = os.path.join(CONFIG_DIR, fn)
+            if os.path.isfile(p):
+                zf.write(p, f"config/{fn}")
+        for f in os.listdir(PARSERS_DIR):
+            if f.endswith(".py"):
+                zf.write(os.path.join(PARSERS_DIR, f), f"parsers/{f}")
+        zf.writestr("version.txt", VERSION)
+    buf.seek(0)
+    from flask import Response
+    return Response(buf.getvalue(), mimetype="application/zip",
+                    headers={"Content-Disposition": "attachment; filename=ego_backup.zip"})
+
+
+@app.route("/api/restore", methods=["POST"])
+def api_restore():
+    """上传 ZIP 备份文件，覆盖 config/ 和 parsers/ 后重启服务。"""
+    import io, zipfile, shutil
+    from config_manager import CONFIG_DIR
+
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "请上传文件"})
+
+    file = request.files["file"]
+    dry_run = request.args.get("dry_run") == "1"
+
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(file.read()))
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"ZIP 解析失败: {e}"})
+
+    # 列出内容
+    config_files = [n for n in zf.namelist() if n.startswith("config/")]
+    parser_files = [n for n in zf.namelist() if n.startswith("parsers/")]
+
+    result = {
+        "ok": True,
+        "dry_run": dry_run,
+        "config": config_files,
+        "parsers": parser_files,
+    }
+
+    if dry_run:
+        return jsonify(result)
+
+    # 覆盖 config/
+    for name in config_files:
+        if name.endswith(".json"):
+            target = os.path.join(CONFIG_DIR, name[len("config/"):])
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target, "wb") as f:
+                f.write(zf.read(name))
+
+    # 覆盖 parsers/
+    for name in parser_files:
+        if name.endswith(".py"):
+            target = os.path.join(PARSERS_DIR, name[len("parsers/"):])
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target, "wb") as f:
+                f.write(zf.read(name))
+
+    zf.close()
+
+    # 重新加载配置到 SQLite
+    try:
+        import config_manager
+        config_manager.load_all()
+    except Exception as e:
+        result["load_error"] = str(e)
+
+    result["ok"] = True
+    return jsonify(result)
 
 
 @app.route("/api/import", methods=["POST"])

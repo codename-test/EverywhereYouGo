@@ -72,6 +72,10 @@ def init_ego():
     log.logger.info("Initializing database...")
     db.init_db()
 
+    # 1.5 加载配置（JSON → SQLite）
+    import config_manager
+    config_manager.load_all()
+
     # 2. 应用日志等级
     log_level = db.get_config("log_level", "INFO")
     if log_level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
