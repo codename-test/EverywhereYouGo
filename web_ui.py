@@ -99,7 +99,6 @@ def api_update_source(sid):
         source_mgr.start_source(sid)
     import config_manager; config_manager.sync_table("sources")
     return jsonify({"status": "ok"})
-    import config_manager; config_manager.sync_table("channels")
 
 
 # ── Parsers ──────────────────────────────────
