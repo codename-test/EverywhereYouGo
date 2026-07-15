@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+*.md
+build.py
+docker-compose.yml
+.DS_Store
+*.db
+*.db-wal
+*.db-shm
+*.log
