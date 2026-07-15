@@ -404,8 +404,11 @@ def update_message(trace_id, **kwargs):
     """按 trace_id 更新消息记录。"""
     if not kwargs:
         return
-    sets = [f"{k}=?" for k in kwargs]
-    vals = list(kwargs.values())
+    allowed = {"status", "msg_json", "error", "channel_results", "raw_body", "sent_at"}
+    sets = [f"{k}=?" for k in kwargs if k in allowed]
+    if not sets:
+        return
+    vals = [kwargs[k] for k in kwargs if k in allowed]
     vals.append(trace_id)
     _conn().execute(f"UPDATE message_log SET {', '.join(sets)}, updated_at=CURRENT_TIMESTAMP WHERE trace_id=?", vals)
     _conn().commit()
@@ -415,8 +418,11 @@ def update_message_by_id(msg_id, **kwargs):
     """按 id 更新消息记录。"""
     if not kwargs:
         return
-    sets = [f"{k}=?" for k in kwargs]
-    vals = list(kwargs.values())
+    allowed = {"status", "msg_json", "error", "channel_results", "raw_body", "sent_at"}
+    sets = [f"{k}=?" for k in kwargs if k in allowed]
+    if not sets:
+        return
+    vals = [kwargs[k] for k in kwargs if k in allowed]
     vals.append(msg_id)
     _conn().execute(f"UPDATE message_log SET {', '.join(sets)}, updated_at=CURRENT_TIMESTAMP WHERE id=?", vals)
     _conn().commit()
@@ -488,12 +494,12 @@ def delete_message(msg_id):
 
 
 def cleanup_old_messages():
-    """清理旧消息：SUCCESS 24h 后删除，RECEIVED/PARSED 1h 后删除。"""
+    """清理旧消息：SUCCESS 7 天后删除，RECEIVED/PARSED 24h 后删除。"""
     _conn().execute(
-        "DELETE FROM message_log WHERE status='SUCCESS' AND sent_at < datetime('now','-24 hours')"
+        "DELETE FROM message_log WHERE status='SUCCESS' AND sent_at < datetime('now','-7 days')"
     )
     _conn().execute(
-        "DELETE FROM message_log WHERE status IN ('RECEIVED','PARSED') AND created_at < datetime('now','-1 hour')"
+        "DELETE FROM message_log WHERE status IN ('RECEIVED','PARSED') AND created_at < datetime('now','-24 hours')"
     )
     _conn().commit()
 

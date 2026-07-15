@@ -112,34 +112,41 @@ def load_all():
 
     log.logger.info("Loading config from JSON files...")
 
-    # 按依赖顺序清空 + 重新导入
-    # 1. parsers（最独立）
-    for p in db.get_parsers(): delete_parser(p["id"])
+    conn = db._conn()
+
+    # 按依赖顺序清空 + 重新导入（保留 id）
+    # 1. parsers
+    conn.executescript("DELETE FROM source_channels; DELETE FROM sources; DELETE FROM templates; DELETE FROM channels; DELETE FROM parsers;")
     for row in _read_json("parsers.json") or []:
-        create_parser(row["name"], row["filename"], row.get("description", ""))
+        conn.execute("INSERT INTO parsers (id, name, filename, description) VALUES (?,?,?,?)",
+                     (row["id"], row["name"], row["filename"], row.get("description", "")))
 
     # 2. channels
-    for c in db.get_channels(): delete_channel(c["id"])
     for row in _read_json("channels.json") or []:
-        create_channel(row["name"], row["type"], row.get("config", "{}"), row.get("enabled", 1))
+        conn.execute("INSERT INTO channels (id, name, type, config, enabled) VALUES (?,?,?,?,?)",
+                     (row["id"], row["name"], row["type"], row.get("config", "{}"), row.get("enabled", 1)))
 
     # 3. templates
-    for t in db.get_templates(): delete_template(t["id"])
     for row in _read_json("templates.json") or []:
-        create_template(row["name"], row.get("engine", "jinja2"),
-                        row.get("title_tpl", ""), row.get("content_tpl", ""))
+        conn.execute("INSERT INTO templates (id, name, engine, title_tpl, content_tpl) VALUES (?,?,?,?,?)",
+                     (row["id"], row["name"], row.get("engine", "jinja2"),
+                      row.get("title_tpl", ""), row.get("content_tpl", "")))
 
     # 4. sources
-    for s in db.get_sources(): delete_source(s["id"])
     for row in _read_json("sources.json") or []:
-        create_source(row["name"], row["port"], row.get("parser_id"), row.get("enabled", 1))
+        conn.execute("INSERT INTO sources (id, name, port, parser_id, enabled) VALUES (?,?,?,?,?)",
+                     (row["id"], row["name"], row["port"], row.get("parser_id"), row.get("enabled", 1)))
 
-    # 5. bindings（依赖 sources/channels/templates）
-    for b in db.get_all_source_channels(): delete_source_channel(b["id"])
+    # 5. bindings
     for row in _read_json("bindings.json") or []:
-        create_source_channel(row["source_id"], row["channel_id"], row["template_id"],
-                              row.get("condition_expr", ""), row.get("priority", 0),
-                              row.get("enabled", 1), row.get("urgent", 0))
+        conn.execute("INSERT INTO source_channels (id, source_id, channel_id, template_id, condition_expr, priority, enabled, urgent) VALUES (?,?,?,?,?,?,?,?)",
+                     (row["id"], row["source_id"], row["channel_id"], row["template_id"],
+                      row.get("condition_expr", ""), row.get("priority", 0),
+                      row.get("enabled", 1), row.get("urgent", 0)))
+
+    conn.commit()
+    _mark_synced()
+    log.logger.info("Config loaded from JSON files")
 
     _mark_synced()
     log.logger.info("Config loaded from JSON files")

@@ -18,6 +18,28 @@ from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
 app.config["TEMPLATES_AUTO_RELOAD"] = True
+
+# ── 简单 Token 认证 ──
+import hmac
+AUTH_TOKEN = os.getenv("EGO_AUTH_TOKEN", "")
+
+
+def _check_auth():
+    """检查请求中的 Authorization: Bearer <token>。"""
+    if not AUTH_TOKEN:
+        return True  # 未设置 token 则不开启认证
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer ") and hmac.compare_digest(auth[7:], AUTH_TOKEN):
+        return True
+    return False
+
+
+@app.before_request
+def _auth_middleware():
+    """除 API 路径外都放行，API 需要认证。"""
+    if request.path.startswith("/api/") and not _check_auth():
+        return jsonify({"error": "Unauthorized"}), 401
+
 source_mgr = None  # main.py 注入
 
 VERSION = "1.0.0"
@@ -223,8 +245,8 @@ def api_channels():
 def api_create_channel():
     data = request.json
     cid = db.create_channel(data["name"], data["type"], data.get("config", {}))
-    return jsonify({"id": cid})
     import config_manager; config_manager.sync_table("channels")
+    return jsonify({"id": cid})
 
 
 @app.route("/api/channels/<int:cid>", methods=["PUT"])
@@ -983,10 +1005,6 @@ def api_update_settings():
 
 def run_web_ui(port: int = 5000):
     """由 main.py 调用，启动 Flask 开发服务器。"""
-    import socket as _sock
-    _old_init = _sock.socket.__init__
-    def _patched_init(self, *args, **kwargs):
-        _old_init(self, *args, **kwargs)
-        self.setsockopt(_sock.SOL_SOCKET, _sock.SO_REUSEADDR, 1)
-    _sock.socket.__init__ = _patched_init
+    from http.server import HTTPServer
+    HTTPServer.allow_reuse_address = True
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)

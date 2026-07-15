@@ -198,15 +198,18 @@ def _do_send(trace_id, source_id, src_name, msg, matched):
                 dedup_result = dedup_key  # 记住 dedup key 供后续写入
                 break  # 只检查第一个配置了 dedup 的 binding
 
-    # 渲染 + 发送
+    # 并行渲染 + 发送
+    import concurrent.futures
     channel_results = []
     all_ok = True
+    result_lock = threading.Lock()
 
-    for sc in matched:
+    def _send_one(sc):
+        nonlocal all_ok
         tmpl = db.get_template(sc["template_id"])
         ch   = db.get_channel(sc["channel_id"])
         if not tmpl or not ch or not ch["enabled"]:
-            continue
+            return None
 
         ch_name = ch["name"]
         ch_type = ch["type"]
@@ -223,9 +226,9 @@ def _do_send(trace_id, source_id, src_name, msg, matched):
         except Exception as e:
             log.logger.error(f"[{trace_id}] Render error ({ch_name}): {e}")
             result["error"] = f"Render: {str(e)[:200]}"
-            channel_results.append(result)
-            all_ok = False
-            continue
+            with result_lock:
+                all_ok = False
+            return result
 
         # 发送
         try:
@@ -238,13 +241,23 @@ def _do_send(trace_id, source_id, src_name, msg, matched):
             else:
                 result["error"] = err or "Send returned False"
                 log.logger.error(f"[{trace_id}] Failed: {ch_name} — {err}")
-                all_ok = False
+                with result_lock:
+                    all_ok = False
         except Exception as e:
             result["error"] = str(e)[:500]
             log.logger.error(f"[{trace_id}] Send error ({ch_name}): {e}")
-            all_ok = False
+            with result_lock:
+                all_ok = False
 
-        channel_results.append(result)
+        return result
+
+    # 用线程池并行发送
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+        futures = [pool.submit(_send_one, sc) for sc in matched]
+        for f in concurrent.futures.as_completed(futures):
+            r = f.result()
+            if r is not None:
+                channel_results.append(r)
 
     # 记录结果
     cr_json = json.dumps(channel_results, ensure_ascii=False)

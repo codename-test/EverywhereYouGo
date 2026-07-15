@@ -9,6 +9,7 @@ import importlib.util
 import os
 import sys
 import traceback
+import threading
 import log
 
 PARSERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "parsers")
@@ -20,21 +21,25 @@ def _module_name(filename: str) -> str:
     return f"parser_{name.replace('-', '_').replace('.', '_')}"
 
 
+# 解析器缓存 {filename: module}
+_parser_cache: dict = {}
+_parser_cache_lock = threading.Lock()
+
+
 def load_parser(filename: str):
     """
     加载 parsers/{filename}，返回 module 对象。
-    缓存：同名文件不重复 import。
+    缓存：同名文件只加载一次，调用 reload_parser 显式重载。
     """
+    with _parser_cache_lock:
+        if filename in _parser_cache:
+            return _parser_cache[filename]
+
     filepath = os.path.join(PARSERS_DIR, filename)
     if not os.path.isfile(filepath):
         raise FileNotFoundError(f"Parser not found: {filepath}")
 
     mod_name = _module_name(filename)
-
-    # 如果已加载，先卸载再重载（支持覆盖上传）
-    if mod_name in sys.modules:
-        del sys.modules[mod_name]
-
     spec = importlib.util.spec_from_file_location(mod_name, filepath)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[mod_name] = mod
@@ -43,8 +48,22 @@ def load_parser(filename: str):
     if not hasattr(mod, "parse"):
         raise AttributeError(f"Parser {filename} must define a parse() function")
 
+    with _parser_cache_lock:
+        _parser_cache[filename] = mod
+
     log.logger.info(f"Parser loaded: {filename}")
     return mod
+
+
+def reload_parser(filename: str):
+    """重新加载解析器（在线编辑后调用），清除缓存后重新加载。"""
+    with _parser_cache_lock:
+        if filename in _parser_cache:
+            del _parser_cache[filename]
+        mod_name = _module_name(filename)
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+    return load_parser(filename)
 
 
 def run_parser(filename: str, raw_body: bytes, headers: dict, query_params: dict) -> dict:
@@ -115,8 +134,3 @@ def _extract_variable_paths(obj, prefix="", depth=0) -> list:
 def _sample(v, max_len=30):
     s = str(v)
     return s[:max_len] + "..." if len(s) > max_len else s
-
-
-def reload_parser(filename: str):
-    """重新加载解析器（在线编辑后调用），等同于 load_parser。"""
-    return load_parser(filename)
