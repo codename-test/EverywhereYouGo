@@ -84,16 +84,9 @@ def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
 
 ## 部署
 
-测试环境通过共享目录部署：
-
 ```bash
-# 本地同步到共享目录
-rm -rf /app/out_file/ego_test
-cp -r EverywhereYouGo /app/out_file/ego_test
-
-# 路由器启动
-cd /mnt/sata1-5/copaw/out_file/ego_test
-WEB_PORT=50001 python3 main.py
+pip install -r requirements.txt
+WEB_PORT=5000 python3 main.py
 ```
 
 ## 环境变量
