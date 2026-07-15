@@ -13,21 +13,27 @@ import db
 import parser_loader
 import renderer
 import source_manager as sm
-import base64
-from flask import Flask, render_template, request, jsonify
+import hmac
+import secrets
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 
 app = Flask(__name__)
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 
-# ── 简单 Token 认证 ──
-import hmac
+# ── 认证 ──
 AUTH_TOKEN = os.getenv("EGO_AUTH_TOKEN", "")
+app.secret_key = os.getenv("EGO_SECRET_KEY", secrets.token_hex(16))
+
+# 不需要认证的路径
+_AUTH_WHITELIST = {"/login", "/logout", "/api/health"}
 
 
-def _check_auth():
-    """检查请求中的 Authorization: Bearer <token>。"""
+def _is_authenticated():
+    """检查是否已认证（session cookie 或 Bearer token）。"""
     if not AUTH_TOKEN:
-        return True  # 未设置 token 则不开启认证
+        return True
+    if session.get("authenticated"):
+        return True
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer ") and hmac.compare_digest(auth[7:], AUTH_TOKEN):
         return True
@@ -36,9 +42,44 @@ def _check_auth():
 
 @app.before_request
 def _auth_middleware():
-    """除 API 路径外都放行，API 需要认证。"""
-    if request.path.startswith("/api/") and not _check_auth():
-        return jsonify({"error": "Unauthorized"}), 401
+    """全局认证中间件：未认证时页面跳转登录页，API 返回 401。"""
+    if request.path in _AUTH_WHITELIST or request.path.startswith("/static"):
+        return
+    if not _is_authenticated():
+        if request.path.startswith("/api/"):
+            return jsonify({"error": "Unauthorized"}), 401
+        return redirect("/login")
+
+
+@app.route("/api/health")
+def api_health():
+    """健康检查端点（不需要认证）。"""
+    return jsonify({"status": "ok"})
+
+
+@app.route("/login", methods=["GET"])
+def login_page():
+    """登录页。"""
+    if not AUTH_TOKEN or session.get("authenticated"):
+        return redirect("/")
+    return render_template("login.html", title="登录", error=None)
+
+
+@app.route("/login", methods=["POST"])
+def login_action():
+    """处理登录。"""
+    token = request.form.get("token", "")
+    if AUTH_TOKEN and hmac.compare_digest(token, AUTH_TOKEN):
+        session["authenticated"] = True
+        return redirect(request.args.get("next", "/"))
+    return render_template("login.html", title="登录", error="Token 无效"), 401
+
+
+@app.route("/logout")
+def logout():
+    """登出。"""
+    session.clear()
+    return redirect("/login")
 
 source_mgr = None  # main.py 注入
 
@@ -48,7 +89,8 @@ PARSERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "parsers"
 
 def _render(page: str, title: str, active_page: str = "", **kwargs):
     """统一渲染：模板名 + title + active_page 注入。"""
-    return render_template(page, title=title, active_page=active_page, **kwargs)
+    return render_template(page, title=title, active_page=active_page,
+                           auth_enabled=bool(AUTH_TOKEN), **kwargs)
 
 
 # ═══════════════════════════════════════════════
@@ -522,10 +564,7 @@ def api_delete_source(sid):
 
 # ── Export (2.1 + 2.2) ──────────────────────
 
-import base64 as _base64
 import datetime as _dt
-
-PARSERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "parsers")
 
 
 def _export_source(s):

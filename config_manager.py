@@ -139,15 +139,16 @@ def load_all():
 
     # 5. bindings
     for row in _read_json("bindings.json") or []:
-        conn.execute("INSERT INTO source_channels (id, source_id, channel_id, template_id, condition_expr, priority, enabled, urgent) VALUES (?,?,?,?,?,?,?,?)",
+        conn.execute("""INSERT INTO source_channels
+                        (id, source_id, channel_id, template_id, condition_expr,
+                         dedup_key_expr, dedup_window, priority, enabled, urgent)
+                        VALUES (?,?,?,?,?,?,?,?,?,?)""",
                      (row["id"], row["source_id"], row["channel_id"], row["template_id"],
-                      row.get("condition_expr", ""), row.get("priority", 0),
+                      row.get("condition_expr", ""), row.get("dedup_key_expr", ""),
+                      row.get("dedup_window", 3600), row.get("priority", 0),
                       row.get("enabled", 1), row.get("urgent", 0)))
 
     conn.commit()
-    _mark_synced()
-    log.logger.info("Config loaded from JSON files")
-
     _mark_synced()
     log.logger.info("Config loaded from JSON files")
 

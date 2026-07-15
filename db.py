@@ -7,14 +7,12 @@ v1.1 — 统一 message_log 表（合并旧 message_log + message_queue）
 
 import sqlite3
 import json
-import threading
 import os
 import uuid
 import datetime as dt
 import log
 
 DB_PATH = os.getenv("DB_PATH", "ego.db")
-_db_lock = threading.Lock()
 
 
 def _conn():
@@ -205,6 +203,15 @@ def delete_parser(parser_id):
     _conn().commit()
 
 
+def upsert_parser(pid, name, filename, description=""):
+    """带显式 ID 的插入/覆盖（config_manager.load_all 用）。"""
+    _conn().execute(
+        "INSERT OR REPLACE INTO parsers (id, name, filename, description) VALUES (?,?,?,?)",
+        (pid, name, filename, description)
+    )
+    _conn().commit()
+
+
 # ═══════════════════════════════════════════════
 #  Sources
 # ═══════════════════════════════════════════════
@@ -250,6 +257,15 @@ def update_source(source_id, **kwargs):
 
 def delete_source(source_id):
     _conn().execute("DELETE FROM sources WHERE id=?", (source_id,))
+    _conn().commit()
+
+
+def upsert_source(sid, name, port, parser_id=None, enabled=1):
+    """带显式 ID 的插入/覆盖（config_manager.load_all 用）。"""
+    _conn().execute(
+        "INSERT OR REPLACE INTO sources (id, name, port, parser_id, enabled) VALUES (?,?,?,?,?)",
+        (sid, name, port, parser_id, enabled)
+    )
     _conn().commit()
 
 
@@ -300,6 +316,17 @@ def delete_channel(channel_id):
     _conn().commit()
 
 
+def upsert_channel(cid, name, channel_type, config="{}", enabled=1):
+    """带显式 ID 的插入/覆盖（config_manager.load_all 用）。"""
+    if isinstance(config, dict):
+        config = json.dumps(config)
+    _conn().execute(
+        "INSERT OR REPLACE INTO channels (id, name, type, config, enabled) VALUES (?,?,?,?,?)",
+        (cid, name, channel_type, config, enabled)
+    )
+    _conn().commit()
+
+
 # ═══════════════════════════════════════════════
 #  Templates
 # ═══════════════════════════════════════════════
@@ -337,6 +364,15 @@ def update_template(template_id, **kwargs):
 
 def delete_template(template_id):
     _conn().execute("DELETE FROM templates WHERE id=?", (template_id,))
+    _conn().commit()
+
+
+def upsert_template(tid, name, engine="jinja2", title_tpl="", content_tpl=""):
+    """带显式 ID 的插入/覆盖（config_manager.load_all 用）。"""
+    _conn().execute(
+        "INSERT OR REPLACE INTO templates (id, name, engine, title_tpl, content_tpl) VALUES (?,?,?,?,?)",
+        (tid, name, engine, title_tpl, content_tpl)
+    )
     _conn().commit()
 
 
@@ -386,6 +422,21 @@ def delete_source_channel(sc_id):
     _conn().commit()
 
 
+def upsert_source_channel(sc_id, source_id, channel_id, template_id,
+                          condition_expr="", priority=0, enabled=1, urgent=0,
+                          dedup_key_expr="", dedup_window=3600):
+    """带显式 ID 的插入/覆盖（config_manager.load_all 用）。"""
+    _conn().execute(
+        """INSERT OR REPLACE INTO source_channels
+           (id, source_id, channel_id, template_id, condition_expr,
+            dedup_key_expr, dedup_window, priority, enabled, urgent)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (sc_id, source_id, channel_id, template_id, condition_expr,
+         dedup_key_expr, dedup_window, priority, enabled, urgent)
+    )
+    _conn().commit()
+
+
 # ═══════════════════════════════════════════════
 #  Unified Message Log (merged old message_log + message_queue)
 # ═══════════════════════════════════════════════
@@ -404,7 +455,7 @@ def update_message(trace_id, **kwargs):
     """按 trace_id 更新消息记录。"""
     if not kwargs:
         return
-    allowed = {"status", "msg_json", "error", "channel_results", "raw_body", "sent_at"}
+    allowed = {"status", "msg_json", "error", "channel_results", "raw_body", "sent_at", "dedup_key"}
     sets = [f"{k}=?" for k in kwargs if k in allowed]
     if not sets:
         return
@@ -418,7 +469,7 @@ def update_message_by_id(msg_id, **kwargs):
     """按 id 更新消息记录。"""
     if not kwargs:
         return
-    allowed = {"status", "msg_json", "error", "channel_results", "raw_body", "sent_at"}
+    allowed = {"status", "msg_json", "error", "channel_results", "raw_body", "sent_at", "dedup_key"}
     sets = [f"{k}=?" for k in kwargs if k in allowed]
     if not sets:
         return

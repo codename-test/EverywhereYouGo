@@ -28,7 +28,7 @@ ENV DB_PATH=/app/data/ego.db
 ENV LOG_LEVEL=INFO
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:$WEB_PORT/api/parsers')" || exit 1
+  CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:$WEB_PORT/api/health')" || exit 1
 
 ENTRYPOINT ["python3"]
 CMD ["main.py"]
