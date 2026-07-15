@@ -48,8 +48,6 @@ jobs:
 
   dockerhub:
     runs-on: ubuntu-latest
-    if: github.repository_owner != '' && secrets.DOCKER_USERNAME != '' && secrets.DOCKER_PASSWORD != ''
-
     steps:
       - uses: actions/checkout@v4
 
@@ -57,7 +55,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}
+          images: ${{ secrets.DOCKER_USERNAME != '' && secrets.DOCKER_USERNAME || 'null' }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
