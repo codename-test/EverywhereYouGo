@@ -49,5 +49,5 @@ class TelegramBot(BaseChannel):
                 "parse_mode": "HTML",
             }, timeout=15)
             return resp.json().get("ok", False)
-        except:
+        except Exception:
             return False

@@ -79,5 +79,5 @@ class WechatWorkAPI(BaseChannel):
                 timeout=15
             )
             return resp.json().get("errcode") == 0
-        except:
+        except Exception:
             return False

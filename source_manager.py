@@ -401,7 +401,7 @@ def _save_sample(source_id, raw_body, headers, query_params):
         try:
             body_obj = json.loads(body_str)
             body_str = json.dumps(body_obj, ensure_ascii=False, indent=2)
-        except:
+        except Exception:
             pass
 
         _sample_store[source_id].insert(0, {

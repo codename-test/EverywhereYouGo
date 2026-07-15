@@ -54,5 +54,5 @@ class Feishu(BaseChannel):
             }, timeout=15)
             data = resp.json()
             return data.get("code") == 0 or data.get("StatusCode") == 0
-        except:
+        except Exception:
             return False

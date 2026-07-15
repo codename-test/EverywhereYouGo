@@ -6,7 +6,6 @@ Web UI — Flask + Bootstrap 5, 模板外置到 templates/ 目录。
 
 import json
 import os
-import traceback
 
 import log
 import db

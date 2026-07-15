@@ -44,5 +44,5 @@ class DingTalk(BaseChannel):
                 "text": {"content": "EverywhereYouGo 通道测试成功！"}
             }, timeout=15)
             return resp.json().get("errcode") == 0
-        except:
+        except Exception:
             return False

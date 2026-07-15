@@ -45,5 +45,5 @@ class Bark(BaseChannel):
                 timeout=15
             )
             return resp.json().get("code") == 200
-        except:
+        except Exception:
             return False
