@@ -8,7 +8,12 @@ import json
 
 
 def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
-    data = json.loads(raw_body)
+    if not raw_body or not raw_body.strip():
+        raise ValueError("请求体为空")
+    try:
+        data = json.loads(raw_body)
+    except json.JSONDecodeError:
+        raise ValueError(f"请求体不是合法 JSON: {raw_body[:200]}")
     
     event = data.get("Event", "")
     name = data.get("Item", {}).get("Name", "")
@@ -19,21 +24,9 @@ def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
     server_url = data.get("Server", {}).get("Url", "")
     
     title = name if name else event
-    
-    content_lines = [
-        f"- **event**: {event}",
-        f"- **name**: {name}",
-        f"- **media_type**: {media_type}",
-        f"- **year**: {year}",
-        f"- **overview**: {overview}",
-        f"- **server_name**: {server_name}",
-        f"- **server_url**: {server_url}",
-    ]
-    content = "\n".join(content_lines)
-    
+
     return {
         "title": str(title),
-        "content": str(content),
         "event": str(event),
         "name": str(name),
         "media_type": str(media_type),

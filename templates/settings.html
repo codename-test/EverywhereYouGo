@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<h4><i class="bi bi-gear"></i> 系统设置</h4>
+<h2><i class="bi bi-gear"></i> 系统设置</h2>
 <div class="card"><div class="card-body">
 <form id="settingsForm">
   <div class="mb-3">
@@ -19,6 +19,24 @@
       <div class="col"><input class="form-control" name="dnd_start" value="{{ config.dnd_start }}" placeholder="开始时间 HH:MM"></div>
       <div class="col"><input class="form-control" name="dnd_end" value="{{ config.dnd_end }}" placeholder="结束时间 HH:MM"></div>
     </div>
+  </div>
+  <hr>
+  <div class="mb-3">
+    <label class="form-label">消息自动清理</label>
+    <div class="form-text mb-2">每种状态独立设置保留时长（小时），0 = 永不清理。定时任务每 10 分钟执行一次。</div>
+    <table class="table table-sm mb-2">
+      <thead><tr><th>状态</th><th>说明</th><th style="width:120px">保留时长(小时)</th></tr></thead>
+      <tbody>
+        {% for status, desc in message_statuses.items() %}
+        <tr>
+          <td><span class="badge bg-secondary">{{ status }}</span></td>
+          <td class="small text-muted">{{ desc }}</td>
+          <td><input class="form-control form-control-sm cleanup-input" type="number" min="0" name="cleanup_{{ status }}" value="{{ config.cleanup[status] }}" data-status="{{ status }}"></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <button type="button" class="btn btn-outline-danger btn-sm" onclick="runCleanup()"><i class="bi bi-trash"></i> 立即清理</button>
   </div>
   <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存设置</button>
 </form>
@@ -59,6 +77,31 @@ document.getElementById('settingsForm').addEventListener('submit', function(e){
     .then(function(r){ return r.json(); })
     .then(function(d){ if(d.status=='ok') alert('保存成功'); });
 });
+
+function getCleanupOverrides() {
+  var overrides = {};
+  document.querySelectorAll('.cleanup-input').forEach(function(inp){
+    overrides[inp.dataset.status] = parseInt(inp.value) || 0;
+  });
+  return overrides;
+}
+
+function runCleanup() {
+  var overrides = getCleanupOverrides();
+  var desc = [];
+  for (var s in overrides) {
+    if (overrides[s] > 0) desc.push(s + ' ' + overrides[s] + 'h');
+  }
+  if (!desc.length) { alert('所有状态保留时长均为 0，不会清理任何消息。'); return; }
+  if (!confirm('立即清理？\n' + desc.join('\n') + '\n不可恢复。')) return;
+  fetch('/api/messages/cleanup', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({overrides: overrides})
+  }).then(function(r){ return r.json(); }).then(function(d){
+    alert('已清理 ' + d.deleted + ' 条消息');
+  });
+}
 
 function backupAll() {
   // ZIP 包包含：config/*.json + parsers/*.py

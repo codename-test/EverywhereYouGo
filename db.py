@@ -121,13 +121,26 @@ def init_db():
         INSERT OR IGNORE INTO templates (id, name, engine, title_tpl, content_tpl)
         VALUES (1, '默认模板', 'jinja2',
             '{{ msg.title }}',
-            '{{ msg.content }}');
+            '');
+
+        -- 迁移：旧版默认 content_tpl '{{ msg.content }}' → 空字符串（启用自动KV列表）
+        UPDATE templates SET content_tpl = ''
+            WHERE id = 1 AND content_tpl = '{{ msg.content }}';
 
         -- DND / 日志等级默认值
         INSERT OR IGNORE INTO system_config (key, value) VALUES ('dnd_enabled', '0');
         INSERT OR IGNORE INTO system_config (key, value) VALUES ('dnd_start', '23:00');
         INSERT OR IGNORE INTO system_config (key, value) VALUES ('dnd_end', '07:00');
-        INSERT OR IGNORE INTO system_config (key, value) VALUES ('log_level', 'INFO');
+        INSERT OR IGNORE INTO system_config (key, value) VALUES ('log_level', 'WARNING');
+        INSERT OR IGNORE INTO system_config (key, value) VALUES ('cleanup_SUCCESS', '168');
+        INSERT OR IGNORE INTO system_config (key, value) VALUES ('cleanup_FAILED', '720');
+        INSERT OR IGNORE INTO system_config (key, value) VALUES ('cleanup_RECEIVED', '24');
+        INSERT OR IGNORE INTO system_config (key, value) VALUES ('cleanup_PARSED', '24');
+        INSERT OR IGNORE INTO system_config (key, value) VALUES ('cleanup_NO_MATCH', '168');
+        INSERT OR IGNORE INTO system_config (key, value) VALUES ('cleanup_DISCARDED', '168');
+        INSERT OR IGNORE INTO system_config (key, value) VALUES ('cleanup_IGNORED', '168');
+        INSERT OR IGNORE INTO system_config (key, value) VALUES ('cleanup_PENDING', '0');
+        INSERT OR IGNORE INTO system_config (key, value) VALUES ('cleanup_SENDING', '0');
     """)
 
 
@@ -393,12 +406,12 @@ def get_all_source_channels():
     ).fetchall()]
 
 
-def create_source_channel(source_id, channel_id, template_id, condition_expr="", priority=0, enabled=1, urgent=0):
+def create_source_channel(source_id, channel_id, template_id, condition_expr="", priority=0, enabled=1, urgent=0, dedup_key_expr="", dedup_window=3600):
     c = _conn().execute(
         """INSERT INTO source_channels
-           (source_id, channel_id, template_id, condition_expr, priority, enabled, urgent)
-           VALUES (?,?,?,?,?,?,?)""",
-        (source_id, channel_id, template_id, condition_expr, priority, enabled, urgent)
+           (source_id, channel_id, template_id, condition_expr, priority, enabled, urgent, dedup_key_expr, dedup_window)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+        (source_id, channel_id, template_id, condition_expr, priority, enabled, urgent, dedup_key_expr, dedup_window)
     )
     _conn().commit()
     return c.lastrowid
@@ -544,15 +557,42 @@ def delete_message(msg_id):
     _conn().commit()
 
 
-def cleanup_old_messages():
-    """清理旧消息：SUCCESS 7 天后删除，RECEIVED/PARSED 24h 后删除。"""
-    _conn().execute(
-        "DELETE FROM message_log WHERE status='SUCCESS' AND sent_at < datetime('now','-7 days')"
-    )
-    _conn().execute(
-        "DELETE FROM message_log WHERE status IN ('RECEIVED','PARSED') AND created_at < datetime('now','-24 hours')"
-    )
-    _conn().commit()
+# 所有消息状态类型及其说明（供清理配置和前端使用）
+MESSAGE_STATUSES = {
+    "RECEIVED":  "已接收，尚未被解析器处理",
+    "PARSED":    "解析成功，等待路由匹配通道",
+    "NO_MATCH":  "解析成功，但没有匹配的路由规则",
+    "PENDING":   "处于免打扰时段，排队等待发送",
+    "SENDING":   "正在发送中",
+    "SUCCESS":   "所有通道推送成功",
+    "FAILED":    "解析或推送失败",
+    "DISCARDED": "去重命中，主动丢弃",
+    "IGNORED":   "手动标记为已处理",
+}
+
+
+def get_cleanup_config():
+    """返回 {status: hours} 字典，从 system_config 读取每个状态的保留时长。"""
+    return {s: int(get_config(f"cleanup_{s}", "0")) for s in MESSAGE_STATUSES}
+
+
+def cleanup_old_messages(overrides=None):
+    """清理旧消息。每个状态独立保留时长，0=不清理。overrides 为 {status: hours} 可覆盖配置。返回删除条数。"""
+    cfg = get_cleanup_config()
+    if overrides:
+        cfg.update(overrides)
+    conn = _conn()
+    total = 0
+    for status, hours in cfg.items():
+        if hours <= 0:
+            continue
+        cursor = conn.execute(
+            "DELETE FROM message_log WHERE status=? AND created_at < datetime('now','localtime',?||' hours')",
+            (status, f"-{hours}")
+        )
+        total += cursor.rowcount
+    conn.commit()
+    return total
 
 
 def mark_ignored(msg_id):
@@ -605,7 +645,7 @@ def get_dnd():
 
 
 def get_log_level():
-    return get_config("log_level", "INFO")
+    return get_config("log_level", "WARNING")
 
 
 # ═══════════════════════════════════════════════
@@ -648,7 +688,7 @@ def clear_logs():
 def set_log_level(level):
     _conn().execute(
         "INSERT OR REPLACE INTO system_config (key, value) VALUES (?,?)",
-        ("LOG_LEVEL", level)
+        ("log_level", level)
     )
     _conn().commit()
     import logging

@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
-<h4><i class="bi bi-inbox"></i> 数据源管理</h4>
-<p class="text-muted">每个数据源监听一个端口，接收外部推送的原始数据。</p>
-
-<button class="btn btn-primary btn-sm mb-3" data-bs-toggle="modal" data-bs-target="#sourceModal" onclick="resetSourceForm()">
-  <i class="bi bi-plus-lg"></i> 新建数据源
-</button>
+<div class="page-header d-flex justify-content-between align-items-center mb-3">
+    <h2><i class="bi bi-inbox"></i> 数据源管理</h2>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#sourceModal" onclick="resetSourceForm()">
+      <i class="bi bi-plus-lg"></i> 新建数据源
+    </button>
+</div>
 
 <div id="sources-list"></div>
 
@@ -44,16 +44,14 @@
         <label class="form-check-label">启用</label>
       </div>
 
-      <hr><h6>渠道绑定 <button class="btn btn-outline-primary btn-sm ms-2" onclick="addBindingRow()"><i class="bi bi-plus"></i></button>
+      <hr><h6>通道绑定 <button class="btn btn-outline-primary btn-sm ms-2" onclick="addBindingRow()"><i class="bi bi-plus"></i></button>
         <div class="row g-2 mt-1 mb-1">
           <div class="col-md-3"><small class="text-muted">推送通道</small></div>
           <div class="col-md-3"><small class="text-muted">推送模板</small></div>
-          <div class="col-md-2"><small class="text-muted">条件表达式 <i class="bi bi-question-circle" title="留空=无条件推送。根据解析器返回的顶层字段做条件匹配，如 event == 'library.new' 仅新入库时推送，media_type == 'Movie' 仅电影推送"></i></small></div>
+          <div class="col-md-2"><small class="text-muted">条件表达式</small></div>
           <div class="col-md-1"><small class="text-muted">优先级</small></div>
-          <div class="col-md-1 text-center"><small class="text-muted" title="紧急通道：DND 时段也推送">紧急</small></div>
-          <div class="col-md-1"></div>
-        </div>
-      </h6>
+          <div class="col-md-1 text-center"><small class="text-muted">紧急</small></div>
+          <div class="col-md-2 text-center"><small class="text-muted">操作</small></div>
       <div id="bindings-container"></div>
 
       <hr><h6>样本数据 <button class="btn btn-outline-secondary btn-sm ms-2" onclick="refreshSamples()"><i class="bi bi-arrow-repeat"></i> 刷新</button></h6>
@@ -134,7 +132,7 @@ function renderSources() {
       <th style="cursor:pointer;" onclick="if(sourceSortKey==='port'){sourceSortAsc=!sourceSortAsc;}else{sourceSortKey='port';sourceSortAsc=true;}renderSources();">端口${sortIcon('port')}</th>
       <th style="cursor:pointer;" onclick="if(sourceSortKey==='parser_name'){sourceSortAsc=!sourceSortAsc;}else{sourceSortKey='parser_name';sourceSortAsc=true;}renderSources();">解析器${sortIcon('parser_name')}</th>
       <th>条件</th>
-      <th>渠道</th>
+      <th>通道</th>
       <th>状态</th>
       <th></th>
     </tr><tr>
@@ -145,21 +143,48 @@ function renderSources() {
     </tr></thead><tbody>`;
   data.forEach(s=>{
     let sc = SC_BINDINGS.filter(x=>x.source_id==s.id);
-    let conds = sc.map(x=>x.condition_expr||'(无条件)').join('<br>');
-    let chNames = sc.map(x=>{let c=CHANNELS.find(y=>y.id==x.channel_id); return c?c.name:'?';}).join(', ');
-    html += `<tr>
-      <td><strong>${s.name}</strong></td>
-      <td><code>${s.port}</code></td>
-      <td>${s.parser_name||'<span class="text-muted">无</span>'}</td>
-      <td style="font-size:0.85em;word-break:break-all;">${conds||'<span class="text-muted">-</span>'}</td>
-      <td>${chNames||'<span class="text-muted">无</span>'}</td>
-      <td><span class="badge bg-${s.enabled?'success':'secondary'}">${s.enabled?'运行中':'已停用'}</span></td>
-      <td class="text-nowrap">
-        <button class="btn btn-sm btn-outline-secondary" onclick="editSource(${s.id})"><i class="bi bi-pencil"></i></button>
-        <button class="btn btn-sm btn-outline-info" onclick="exportItem('source',${s.id})" title="导出"><i class="bi bi-download"></i></button>
-        <button class="btn btn-sm btn-outline-danger" onclick="deleteSource(${s.id})"><i class="bi bi-trash"></i></button>
-      </td>
-    </tr>`;
+    let n = sc.length || 1;
+    let srcCells = `<td rowspan="${n}"><strong>${s.name}</strong></td>
+      <td rowspan="${n}"><code>${s.port}</code></td>
+      <td rowspan="${n}">${s.parser_name||'<span class="text-muted">无</span>'}</td>`;
+    let statusBadges = `<span class="badge bg-${s.enabled?'success':'secondary'}">${s.enabled?'运行中':'已停用'}</span>`;
+    if (sc.length === 0) {
+      html += `<tr>${srcCells}
+        <td colspan="2" class="text-muted">无绑定</td>
+        <td rowspan="1">${statusBadges}</td>
+        <td rowspan="1" class="text-nowrap">
+          <button class="btn btn-sm btn-outline-secondary" onclick="editSource(${s.id})"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-outline-info" onclick="exportItem('source',${s.id})" title="导出"><i class="bi bi-download"></i></button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteSource(${s.id})"><i class="bi bi-trash"></i></button>
+        </td></tr>`;
+    } else {
+      let n = sc.length;
+      sc.forEach((b, i)=>{
+        let ch = CHANNELS.find(y=>y.id==b.channel_id);
+        let chName = ch ? ch.name : '?';
+        let condText = b.condition_expr || '<span class="text-muted">(无条件)</span>';
+        let extras = '';
+        if (b.dedup_key_expr) extras += ' <span class="badge bg-info" title="去重窗口: '+b.dedup_window+'s">去重</span>';
+        if (b.urgent) extras += ' <span class="badge bg-warning text-dark" title="紧急通道：DND 时段也推送">紧急</span>';
+        let row = '';
+        if (i === 0) {
+          row = `<tr>${srcCells}
+            <td style="font-size:0.85em;word-break:break-all;">${condText}</td>
+            <td>${chName}${extras}</td>
+            <td rowspan="${n}">${statusBadges}</td>
+            <td rowspan="${n}" class="text-nowrap">
+              <button class="btn btn-sm btn-outline-secondary" onclick="editSource(${s.id})"><i class="bi bi-pencil"></i></button>
+              <button class="btn btn-sm btn-outline-info" onclick="exportItem('source',${s.id})" title="导出"><i class="bi bi-download"></i></button>
+              <button class="btn btn-sm btn-outline-danger" onclick="deleteSource(${s.id})"><i class="bi bi-trash"></i></button>
+            </td></tr>`;
+        } else {
+          row = `<tr>
+            <td style="font-size:0.85em;word-break:break-all;">${condText}</td>
+            <td>${chName}${extras}</td></tr>`;
+        }
+        html += row;
+      });
+    }
   });
   html += '</tbody></table></div>';
   if(!data.length) html='<div class="text-muted p-3">暂无数据源</div>';
@@ -218,32 +243,67 @@ function saveSource() {
   });
 }
 function addBindingRow(data) {
-  data = data || {channel_id:'',template_id:'',condition_expr:'',priority:0,urgent:0};
+  data = data || {channel_id:'',template_id:'',condition_expr:'',priority:0,urgent:0,dedup_key_expr:'',dedup_window:3600};
   let bc = document.getElementById('bindings-container');
-  let div = document.createElement('div');
-  div.className = 'row g-2 mb-2 align-items-end';
+  let wrapper = document.createElement('div');
+  wrapper.className = 'binding-group mb-2';
   let chOpts = CHANNELS.map(c=>`<option value="${c.id}" ${c.id==data.channel_id?'selected':''}>${c.name}</option>`).join('');
   let tOpts = TEMPLATES.map(t=>`<option value="${t.id}" ${t.id==data.template_id?'selected':''}>${t.name}</option>`).join('');
   let urgentChecked = data.urgent ? 'checked' : '';
-  div.innerHTML = `<div class="col-md-3"><select class="form-select form-select-sm ch-sel">${chOpts}</select></div>
+  let dedupKey = data.dedup_key_expr||'';
+  let dedupWin = data.dedup_window||3600;
+  let hasDedup = dedupKey ? true : false;
+  // 主行
+  let mainRow = document.createElement('div');
+  mainRow.className = 'row g-2 align-items-end';
+  mainRow.innerHTML = `<div class="col-md-3"><select class="form-select form-select-sm ch-sel">${chOpts}</select></div>
     <div class="col-md-3"><select class="form-select form-select-sm tpl-sel">${tOpts}</select></div>
-    <div class="col-md-2"><input class="form-control form-control-sm cond" placeholder="条件表达式" value="${data.condition_expr||''}" title="留空=所有消息都推送到此渠道。示例: event == 'library.new' 仅新媒体入库时推送；media_type == 'Movie' 仅电影推送"></div>
+    <div class="col-md-2"><input class="form-control form-control-sm cond" placeholder="条件表达式" value="${data.condition_expr||''}" title="留空=无条件。示例: event == 'library.new'"></div>
     <div class="col-md-1"><input class="form-control form-control-sm pri" type="number" placeholder="优先级" value="${data.priority||0}"></div>
-    <div class="col-md-1 text-center"><div class="form-check"><input class="form-check-input urgent-chk" type="checkbox" ${urgentChecked} title="紧急通道：DND 时段也推送"><label class="form-check-label"><small>🔥</small></label></div></div>
-    <div class="col-md-1"><button class="btn btn-sm btn-outline-danger" onclick="this.closest('.row').remove()">&times;</button></div>`;
-  bc.appendChild(div);
+    <div class="col-md-1 text-center"><div class="form-check d-inline-block mt-1"><input class="form-check-input urgent-chk" type="checkbox" ${urgentChecked} title="紧急：DND 时段也推"><label class="form-check-label"><small>🔥</small></label></div></div>
+    <div class="col-md-2">
+      <div class="d-flex gap-1">
+        <button class="btn btn-sm btn-outline-info flex-grow-1" onclick="toggleDedup(this)" title="配置去重">${hasDedup?'⏱ '+dedupKey:'⏱ 去重'}</button>
+        <button class="btn btn-sm btn-outline-danger" onclick="this.closest('.binding-group').remove()">&times;</button>
+      </div>
+    </div>`;
+  wrapper.appendChild(mainRow);
+  // 去重子行（默认折叠）
+  let subRow = document.createElement('div');
+  subRow.className = 'row g-2 mt-1';
+  subRow.style.display = hasDedup ? 'flex' : 'none';
+  subRow.innerHTML = `<div class="offset-md-6 col-md-3">
+      <div class="d-flex align-items-center gap-2">
+        <span class="text-nowrap small">去重键</span>
+        <input class="form-control form-control-sm dedup-key" placeholder="event" value="${dedupKey}" title="可用 + 连接多个变量，全部符合时视为重复，如 event+Item.Type。留空=不去重">
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="d-flex align-items-center gap-2">
+        <span class="text-nowrap small">窗口时间(秒)</span>
+        <input class="form-control form-control-sm dedup-window" type="number" value="${dedupWin}" title="窗口时间内，重复请求不记录不推送。例：3600秒=1小时">
+      </div>
+    </div>`;
+  wrapper.appendChild(subRow);
+  bc.appendChild(wrapper);
+}
+function toggleDedup(btn) {
+  let sub = btn.closest('.binding-group').querySelector('.row.mt-1');
+  if (sub) sub.style.display = sub.style.display === 'none' ? 'flex' : 'none';
 }
 function saveBindings(sourceId) {
-  let rows = document.querySelectorAll('#bindings-container .row');
+  let groups = document.querySelectorAll('#bindings-container .binding-group');
   let items = [];
-  rows.forEach(row=>{
-    let chId = parseInt(row.querySelector('.ch-sel').value);
-    let tId = parseInt(row.querySelector('.tpl-sel').value);
-    let cond = row.querySelector('.cond').value;
-    let pri = parseInt(row.querySelector('.pri').value)||0;
-    let urg = row.querySelector('.urgent-chk').checked ? 1 : 0;
+  groups.forEach(group=>{
+    let chId = parseInt(group.querySelector('.ch-sel').value);
+    let tId = parseInt(group.querySelector('.tpl-sel').value);
+    let cond = group.querySelector('.cond').value;
+    let pri = parseInt(group.querySelector('.pri').value)||0;
+    let urg = group.querySelector('.urgent-chk').checked ? 1 : 0;
+    let dk = group.querySelector('.dedup-key').value.trim();
+    let dw = parseInt(group.querySelector('.dedup-window').value)||3600;
     if(!chId||!tId) return;
-    items.push({channel_id:chId,template_id:tId,condition_expr:cond,priority:pri,urgent:urg});
+    items.push({channel_id:chId,template_id:tId,condition_expr:cond,priority:pri,urgent:urg,dedup_key_expr:dk,dedup_window:dw});
   });
   if(items.length===0) {
     // 全部删除：仍需通知后端清空
@@ -310,27 +370,28 @@ function showAvailKeys() {
 }
 let activeCondInput = null;
 document.addEventListener('focusin', function(e) {
-  if (e.target.classList.contains('cond')) activeCondInput = e.target;
+  if (e.target.classList.contains('cond') || e.target.classList.contains('dedup-key')) activeCondInput = e.target;
 });
 function insertVarToCondition(varName) {
-  let rows = document.querySelectorAll('#bindings-container .row');
-  if (rows.length === 0) {
-    alert('请先添加渠道绑定');
+  let groups = document.querySelectorAll('#bindings-container .binding-group');
+  if (groups.length === 0) {
+    alert('请先添加通道绑定');
     return;
   }
-  // 优先插入到当前激活的条件输入框，否则插入到最后一个
-  let targetInput = activeCondInput || rows[rows.length - 1].querySelector('.cond');
-  if (targetInput) {
-    let start = targetInput.selectionStart;
-    let end = targetInput.selectionEnd;
-    let text = targetInput.value;
-    targetInput.value = text.substring(0, start) + varName + text.substring(end);
-    targetInput.focus();
-    targetInput.setSelectionRange(start + varName.length, start + varName.length);
-    // 视觉反馈
-    targetInput.classList.add('bg-success', 'text-white');
-    setTimeout(() => targetInput.classList.remove('bg-success', 'text-white'), 300);
+  // 插入到当前激活的输入框（条件表达式或去重键）
+  if (activeCondInput) {
+    let start = activeCondInput.selectionStart;
+    let end = activeCondInput.selectionEnd;
+    let text = activeCondInput.value;
+    activeCondInput.value = text.substring(0, start) + varName + text.substring(end);
+    activeCondInput.focus();
+    activeCondInput.setSelectionRange(start + varName.length, start + varName.length);
+    activeCondInput.classList.add('bg-success', 'text-white');
+    setTimeout(() => activeCondInput.classList.remove('bg-success', 'text-white'), 300);
+    return;
   }
+  // 没有激活的输入框则提示
+  alert('请先点击要插入变量的输入框（条件表达式或去重键）');
 }
 function testParse() {
   let sid = editId||document.getElementById('src-id').value;
@@ -378,8 +439,9 @@ function copyAIPrompt() {
   - 分析样本数据，挑选所有有意义的字段，为每个字段定义一个简洁直观的变量名（如 \`name\`、\`event\`、\`media_type\`、\`year\`、\`overview\`、\`server_url\` 等）
   - 在解析器里用明确的赋值语句从 JSON 中提取每个字段（如 \`event = data["Event"]\`、\`name = data["Item"]["Name"]\`）
   - 将所有变量放入返回 dict，key 即变量名，value 全部 \`str(v)\`
-  - 同时返回 \`title\`（从变量中挑一个最合适的）和 \`content\`（将变量按 \`- **变量名**: 值\` 格式组织成 Markdown 列表）
+  - 同时返回 \`title\`（从变量中挑一个最合适的作为标题）
   - **不要做自动展平**，要明确列出每个字段的来源路径和变量名
+  - **不要返回 \`content\` 字段**，模板引擎会直接用单个变量，不需要预拼好的内容
 
 ## 当前数据源
 

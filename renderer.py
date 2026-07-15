@@ -23,7 +23,7 @@ def render_template(engine: str, title_tpl: str, content_tpl: str, msg: dict) ->
         engine:      "simple" | "jinja2"
         title_tpl:   标题模板字符串
         content_tpl: 内容模板字符串
-        msg:         解析器返回的 dict（title/content + 展平的顶层字段）
+        msg:         解析器返回的 dict（title + 展平的顶层字段）
 
     Returns:
         {"title": str, "content": str}

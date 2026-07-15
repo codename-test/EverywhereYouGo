@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
-<h4><i class="bi bi-file-earmark-code"></i> 解析器管理</h4>
-<p class="text-muted">上传 .py 解析脚本，定义 parse() 函数将原始数据转为标准消息体。</p>
-
-<button class="btn btn-primary btn-sm mb-3" data-bs-toggle="modal" data-bs-target="#parserModal">
-  <i class="bi bi-upload"></i> 上传解析器
-</button>
+<div class="page-header d-flex justify-content-between align-items-center mb-3">
+    <h2><i class="bi bi-file-earmark-code"></i> 解析器管理</h2>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#parserModal">
+      <i class="bi bi-upload"></i> 上传解析器
+    </button>
+</div>
 
 <div id="parsers-list"></div>
 

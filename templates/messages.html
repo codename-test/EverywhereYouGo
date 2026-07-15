@@ -2,12 +2,12 @@
 {% block content %}
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h4 class="mb-0">消息记录</h4>
+        <h2 class="mb-0">消息记录</h2>
         <div>
-            <button class="btn btn-outline-warning btn-sm me-2" onclick="flushQueue()" id="flushBtn">
+            <button class="btn btn-outline-warning me-2" onclick="flushQueue()" id="flushBtn">
                 刷新队列 <span class="badge bg-warning text-dark" id="pendingBadge">0</span>
             </button>
-            <button class="btn btn-outline-secondary btn-sm" onclick="loadMessages()">刷新</button>
+            <button class="btn btn-outline-secondary" onclick="loadMessages()">刷新</button>
         </div>
     </div>
 
@@ -63,8 +63,10 @@
     <!-- 批处理工具栏 -->
     <div class="mb-2" id="batchToolbar" style="display:none">
         <span class="me-2 small text-muted" id="selectedCount">已选 0 条</span>
-        <button class="btn btn-outline-warning btn-sm me-1" onclick="batchRetry()">批量重发</button>
-        <button class="btn btn-outline-secondary btn-sm" onclick="batchIgnore()">标记已处理</button>
+        <button class="btn btn-outline-warning btn-sm me-1" onclick="batchRetry('original')">批量重发</button>
+        <button class="btn btn-outline-warning btn-sm me-1" onclick="batchRetry('rerender')" title="重新走解析器后重发">批量重解析重发</button>
+        <button class="btn btn-outline-secondary btn-sm me-1" onclick="batchIgnore()">标记已处理</button>
+        <button class="btn btn-outline-danger btn-sm me-1" onclick="batchDelete()">批量删除</button>
         <button class="btn btn-outline-light btn-sm" onclick="clearSelection()">取消选择</button>
     </div>
 
@@ -79,7 +81,7 @@
                     <th style="width:80px">来源</th>
                     <th style="width:90px">状态</th>
                     <th>通道结果</th>
-                    <th style="width:100px">操作</th>
+                    <th style="width:140px">操作</th>
                 </tr>
             </thead>
             <tbody id="msgBody">
@@ -135,11 +137,16 @@ function renderMessages(msgs) {
         const trace = m.trace_id ? m.trace_id.substring(0, 8) : '?';
         let actions = '';
         if (m.status === 'FAILED') {
-            actions += `<button class="btn btn-outline-warning btn-sm me-1" onclick="retryMsg(${m.id})" title="重发">↻</button>`;
+            actions += `<div class="btn-group btn-group-sm me-1">
+                <button class="btn btn-outline-warning btn-sm" onclick="event.stopPropagation();retryMsg(${m.id},'original')" title="使用原解析结果重发">↻</button>
+                <button class="btn btn-outline-warning btn-sm dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" onclick="event.stopPropagation()"></button>
+                <ul class="dropdown-menu"><li><a class="dropdown-item" href="#" onclick="retryMsg(${m.id},'rerender')">重新解析后重发</a></li></ul>
+            </div>`;
         }
         if (m.status === 'FAILED' || m.status === 'DISCARDED' || m.status === 'NO_MATCH') {
-            actions += `<button class="btn btn-outline-secondary btn-sm" onclick="ignoreMsg(${m.id})" title="标记已处理">✓</button>`;
+            actions += `<button class="btn btn-outline-secondary btn-sm me-1" onclick="event.stopPropagation();ignoreMsg(${m.id})" title="标记已处理">✓</button>`;
         }
+        actions += `<button class="btn btn-outline-danger btn-sm" onclick="event.stopPropagation();deleteMsg(${m.id})" title="删除">✕</button>`;
         return `<tr onclick="toggleRow(${m.id})" style="cursor:pointer">
             <td onclick="event.stopPropagation()"><input type="checkbox" class="msg-select" value="${m.id}" onchange="updateBatchToolbar()"></td>
             <td>${m.id}</td>
@@ -180,14 +187,23 @@ function toggleRow(id) {
     if (row) row.style.display = row.style.display === 'none' ? '' : 'none';
 }
 
-function retryMsg(id) {
-    if (!confirm('重发这条消息？')) return;
-    fetch('/api/messages/' + id + '/retry?mode=original', {method:'POST'})
+function retryMsg(id, mode) {
+    mode = mode || 'original';
+    const label = mode === 'rerender' ? '重新解析后重发' : '原样重发';
+    if (!confirm(label + '这条消息？')) return;
+    fetch('/api/messages/' + id + '/retry?mode=' + mode, {method:'POST'})
         .then(r => r.json())
         .then(data => {
             if (data.ok) loadMessages(currentPage);
             else alert('重发失败: ' + (data.error || 'unknown'));
         });
+}
+
+function deleteMsg(id) {
+    if (!confirm('删除这条消息？不可恢复。')) return;
+    fetch('/api/messages/' + id, {method:'DELETE'})
+        .then(r => r.json())
+        .then(() => loadMessages(currentPage));
 }
 
 function ignoreMsg(id) {
@@ -230,16 +246,32 @@ function getSelectedIds() {
     return Array.from(document.querySelectorAll('.msg-select:checked')).map(cb => parseInt(cb.value));
 }
 
-function batchRetry() {
+function batchRetry(mode) {
     const ids = getSelectedIds();
     if (!ids.length) return;
-    if (!confirm('重发选中的 ' + ids.length + ' 条消息？')) return;
+    const label = mode === 'rerender' ? '重新解析后重发' : '原样重发';
+    if (!confirm(label + '选中的 ' + ids.length + ' 条消息？')) return;
     fetch('/api/messages/batch', {
         method:'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({action:'retry', ids: ids})
+        body: JSON.stringify({action:'retry', ids: ids, mode: mode})
     }).then(r => r.json()).then(data => {
         alert('成功: ' + data.ok + ' 条, 失败: ' + data.fail + ' 条');
+        clearSelection();
+        loadMessages(currentPage);
+    });
+}
+
+function batchDelete() {
+    const ids = getSelectedIds();
+    if (!ids.length) return;
+    if (!confirm('删除选中的 ' + ids.length + ' 条消息？不可恢复。')) return;
+    fetch('/api/messages/batch', {
+        method:'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({action:'delete', ids: ids})
+    }).then(r => r.json()).then(data => {
+        alert('已删除 ' + data.ok + ' 条');
         clearSelection();
         loadMessages(currentPage);
     });

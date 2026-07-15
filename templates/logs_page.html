@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4><i class="bi bi-journal"></i> 系统日志</h4>
+    <h2><i class="bi bi-journal"></i> 系统日志</h2>
     <div>
         <select class="form-select form-select-sm d-inline-block w-auto me-2" id="logLevelFilter" onchange="loadLogs()" title="筛选显示，不影响写入">
             <option value="">全部级别</option>
@@ -11,7 +11,7 @@
             <option value="ERROR">ERROR</option>
             <option value="CRITICAL">CRITICAL</option>
         </select>
-        <button class="btn btn-outline-danger btn-sm" onclick="clearLogs()">
+        <button class="btn btn-outline-danger" onclick="clearLogs()">
             <i class="bi bi-trash"></i> 清空日志
         </button>
     </div>
@@ -44,7 +44,7 @@
                 </div>
             </div>
             <div class="modal-body">
-                <pre id="logDetailContent" class="bg-light p-3 rounded" style="white-space:pre-wrap;word-break:break-all;font-size:0.85rem;max-height:60vh;overflow-y:auto"></pre>
+                <pre id="logDetailContent" class="p-3 rounded" style="white-space:pre-wrap;word-break:break-all;font-size:0.85rem;max-height:60vh;overflow-y:auto;background:#1e1e1e;color:#d4d4d4"></pre>
             </div>
         </div>
     </div>
@@ -90,13 +90,11 @@ function showLogDetail(idx) {
 }
 
 function copyLogDetail() {
-    var ta = document.createElement('textarea');
-    ta.value = currentLogMessage;
-    ta.style.position = 'fixed'; ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select(); ta.setSelectionRange(0, 99999);
-    document.execCommand('copy');
-    document.body.removeChild(ta);
+    var btn = document.querySelector('#logDetailModal .btn-outline-primary');
+    navigator.clipboard.writeText(currentLogMessage).then(function(){
+        btn.innerHTML = '<i class="bi bi-check-lg"></i> 已复制';
+        setTimeout(function(){ btn.innerHTML = '<i class="bi bi-clipboard"></i> 复制'; }, 1500);
+    });
 }
 
 function clearLogs() {

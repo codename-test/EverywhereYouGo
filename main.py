@@ -72,12 +72,15 @@ def init_ego():
     log.logger.info("Initializing database...")
     db.init_db()
 
+    # 1.1 挂载数据库日志处理器
+    log.setup_db_logging()
+
     # 1.5 加载配置（JSON → SQLite）
     import config_manager
     config_manager.load_all()
 
     # 2. 应用日志等级
-    log_level = db.get_config("log_level", "INFO")
+    log_level = db.get_config("log_level", "WARNING")
     if log_level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
         log.logger.setLevel(getattr(logging, log_level))
         for h in log.logger.handlers:
@@ -141,7 +144,7 @@ def main():
     web_port = int(os.getenv("WEB_PORT", "5000"))
     log.logger.info(f"Web UI → http://0.0.0.0:{web_port}")
 
-    print(f"\n  \033[1;36m➜  WebUI:  http://localhost:{web_port}\033[0m")
+    print(f"\n  \033[1;36m->  WebUI:  http://localhost:{web_port}\033[0m")
     print()
 
     # 信号处理

@@ -69,7 +69,7 @@ def reload_parser(filename: str):
 def run_parser(filename: str, raw_body: bytes, headers: dict, query_params: dict) -> dict:
     """
     执行解析器，返回标准消息体 dict。
-    解析器返回 title/content + 展平的顶层字段。
+    解析器返回 title + 展平的顶层字段。
     异常时 raise，调用方负责捕获。
     """
     mod = load_parser(filename)

@@ -128,6 +128,8 @@ def process_message(source_id, raw_body: bytes, headers: dict, query_params: dic
     src_name = src["name"] if src else f"src#{source_id}"
     raw_str = raw_body.decode("utf-8", errors="replace")[:10000]
 
+    log.logger.debug(f"[{trace_id}] Received from {src_name}: {raw_str[:2000]}")
+
     # 1. 记录原始消息
     db.create_message_log(trace_id, source_id, src_name, raw_str, "RECEIVED")
 
@@ -282,18 +284,26 @@ def _summarize_failures(channel_results):
 
 
 def _eval_dedup_key(expr, msg):
-    """求值去重键表达式。简单模式：直接取 msg dict 中的路径。"""
+    """求值去重键表达式。支持 + 拼接多个字段，如 event+Item.Type。"""
     try:
-        # 安全：只用 json 路径，不用 eval
-        parts = [p.strip() for p in expr.split(".")]
-        val = msg
-        for p in parts:
-            if isinstance(val, dict):
-                val = val.get(p)
+        parts = [p.strip() for p in expr.split("+")]
+        vals = []
+        for part in parts:
+            path = [p.strip() for p in part.split(".")]
+            val = msg
+            for p in path:
+                if isinstance(val, dict):
+                    val = val.get(p)
+                else:
+                    val = None
+                    break
+            if val is not None:
+                vals.append(str(val))
             else:
+                # 某个字段缺失时整体无效
                 return None
-        if val is not None:
-            return str(val)
+        if vals:
+            return "|".join(vals)
         return None
     except Exception:
         return None

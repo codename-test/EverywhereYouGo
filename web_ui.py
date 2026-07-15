@@ -424,15 +424,16 @@ def api_ignore_message(msg_id):
 @app.route("/api/messages/batch", methods=["POST"])
 def api_batch_messages():
     data = request.json
-    action = data.get("action")  # "retry" or "ignore"
+    action = data.get("action")  # "retry", "ignore", or "delete"
     ids = data.get("ids", [])
+    mode = data.get("mode", "original")
     if not ids:
         return jsonify({"ok": False, "error": "No ids provided"})
 
     results = {"ok": 0, "fail": 0, "errors": []}
     for mid in ids:
         if action == "retry":
-            ok, err = sm.retry_message(mid)
+            ok, err = sm.retry_message(mid, mode)
             if ok:
                 results["ok"] += 1
             else:
@@ -441,6 +442,9 @@ def api_batch_messages():
         elif action == "ignore":
             db.mark_ignored(mid)
             results["ok"] += 1
+        elif action == "delete":
+            db.delete_message(mid)
+            results["ok"] += 1
         else:
             return jsonify({"ok": False, "error": f"Unknown action: {action}"})
 
@@ -448,6 +452,17 @@ def api_batch_messages():
 
 
 # ── Queue / Flush ────────────────────────────
+
+
+@app.route("/api/messages/cleanup", methods=["POST"])
+def api_cleanup_messages():
+    """手动清理旧消息。可选传 overrides: {status: hours} 覆盖配置。"""
+    data = request.json or {}
+    overrides = data.get("overrides")
+    if overrides:
+        overrides = {k: int(v) for k, v in overrides.items()}
+    count = db.cleanup_old_messages(overrides)
+    return jsonify({"deleted": count})
 
 
 @app.route("/api/queue/flush", methods=["POST"])
@@ -487,6 +502,8 @@ def api_save_source_channels(sid):
             priority=item.get("priority", 0),
             enabled=item.get("enabled", 1),
             urgent=item.get("urgent", 0),
+            dedup_key_expr=item.get("dedup_key_expr", ""),
+            dedup_window=item.get("dedup_window", 3600),
         )
     import config_manager; config_manager.sync_table("bindings")
     return jsonify({"status": "ok", "count": len(items)})
@@ -867,7 +884,8 @@ def _import_execute(data, mode="insert"):
                 db.create_source_channel(
                     sc["source_id"], sc["channel_id"], sc["template_id"],
                     sc.get("condition_expr", ""), sc.get("priority", 0),
-                    sc.get("enabled", 1), sc.get("urgent", 0)
+                    sc.get("enabled", 1), sc.get("urgent", 0),
+                    sc.get("dedup_key_expr", ""), sc.get("dedup_window", 3600)
                 )
                 summary["source_channels"]["inserted"] += 1
             else:
@@ -880,13 +898,16 @@ def _import_execute(data, mode="insert"):
                         condition_expr=sc.get("condition_expr", ""),
                         priority=sc.get("priority", 0),
                         enabled=sc.get("enabled", 1),
-                        urgent=sc.get("urgent", 0))
+                        urgent=sc.get("urgent", 0),
+                        dedup_key_expr=sc.get("dedup_key_expr", ""),
+                        dedup_window=sc.get("dedup_window", 3600))
                     summary["source_channels"]["updated"] += 1
                 else:
                     db.create_source_channel(
                         sc["source_id"], sc["channel_id"], sc["template_id"],
                         sc.get("condition_expr", ""), sc.get("priority", 0),
-                        sc.get("enabled", 1), sc.get("urgent", 0))
+                        sc.get("enabled", 1), sc.get("urgent", 0),
+                        sc.get("dedup_key_expr", ""), sc.get("dedup_window", 3600))
                     summary["source_channels"]["inserted"] += 1
         except Exception as e:
             summary["source_channels"]["errors"] += 1
@@ -1020,9 +1041,11 @@ def settings_page():
         "dnd_enabled": db.get_config("dnd_enabled", "0"),
         "dnd_start": db.get_config("dnd_start", "23:00"),
         "dnd_end": db.get_config("dnd_end", "07:00"),
+        "cleanup": db.get_cleanup_config(),
     }
     return _render("settings.html", "系统设置", "settings",
-                   config=config, version=VERSION)
+                   config=config, version=VERSION,
+                   message_statuses=db.MESSAGE_STATUSES)
 
 
 @app.route("/api/settings", methods=["POST"])
