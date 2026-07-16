@@ -18,7 +18,7 @@ import source_manager
 from source_manager import SourceManager
 from web_ui import run_web_ui, app as web_app
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 AUTHOR = "codename-test"
 DESCRIPTION = "EverywhereYouGo (EGo) — 通用信息转发平台"
 

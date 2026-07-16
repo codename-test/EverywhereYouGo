@@ -1,4 +1,4 @@
-# EGo — 通用信息转发平台 v1.0.0
+# EGo — 通用信息转发平台 v1.0.1
 FROM python:3.11-alpine3.18
 
 LABEL maintainer="EGo Team"
