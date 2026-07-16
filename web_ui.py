@@ -12,19 +12,21 @@ import db
 import parser_loader
 import renderer
 import source_manager as sm
+import i18n
 import hmac
 import secrets
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 
 app = Flask(__name__)
 app.config["TEMPLATES_AUTO_RELOAD"] = True
+app.jinja_env.globals["_"] = i18n._
 
 # ── 认证 ──
 AUTH_TOKEN = os.getenv("EGO_AUTH_TOKEN", "")
 app.secret_key = os.getenv("EGO_SECRET_KEY", secrets.token_hex(16))
 
 # 不需要认证的路径
-_AUTH_WHITELIST = {"/login", "/logout", "/api/health"}
+_AUTH_WHITELIST = {"/login", "/logout", "/api/health", "/api/lang"}
 
 
 def _is_authenticated():
@@ -46,7 +48,7 @@ def _auth_middleware():
         return
     if not _is_authenticated():
         if request.path.startswith("/api/"):
-            return jsonify({"error": "Unauthorized"}), 401
+            return jsonify({"error": i18n._("err.unauthorized")}), 401
         return redirect("/login")
 
 
@@ -56,12 +58,27 @@ def api_health():
     return jsonify({"status": "ok"})
 
 
+@app.route("/api/lang", methods=["GET", "POST"])
+def api_lang():
+    """语言切换：GET 返回当前语言，POST 设置新语言。"""
+    if request.method == "GET":
+        return jsonify({"lang": i18n.get_lang(), "supported": i18n.SUPPORTED_LANGS})
+    data = request.json or {}
+    lang = data.get("lang", i18n.DEFAULT_LANG)
+    if lang not in i18n.SUPPORTED_LANGS:
+        return jsonify({"error": i18n._("err.unsupported_lang")}), 400
+    i18n.set_lang(lang)
+    resp = jsonify({"lang": lang})
+    resp.set_cookie("lang", lang, max_age=365*24*3600, samesite="Lax")
+    return resp
+
+
 @app.route("/login", methods=["GET"])
 def login_page():
     """登录页。"""
     if not AUTH_TOKEN or session.get("authenticated"):
         return redirect("/")
-    return render_template("login.html", title="登录", error=None)
+    return render_template("login.html", title=i18n._("login.title"), error=None, lang=i18n.get_lang())
 
 
 @app.route("/login", methods=["POST"])
@@ -71,7 +88,7 @@ def login_action():
     if AUTH_TOKEN and hmac.compare_digest(token, AUTH_TOKEN):
         session["authenticated"] = True
         return redirect(request.args.get("next", "/"))
-    return render_template("login.html", title="登录", error="Token 无效"), 401
+    return render_template("login.html", title=i18n._("login.title"), error=i18n._("login.token_invalid"), lang=i18n.get_lang()), 401
 
 
 @app.route("/logout")
@@ -87,9 +104,12 @@ PARSERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "parsers"
 
 
 def _render(page: str, title: str, active_page: str = "", **kwargs):
-    """统一渲染：模板名 + title + active_page 注入。"""
+    """统一渲染：模板名 + title + active_page + i18n 注入。"""
+    lang = i18n.get_lang()
+    js_i18n = i18n.TRANSLATIONS.get(lang, {})
     return render_template(page, title=title, active_page=active_page,
-                           auth_enabled=bool(AUTH_TOKEN), **kwargs)
+                           auth_enabled=bool(AUTH_TOKEN),
+                           lang=lang, js_i18n=js_i18n, **kwargs)
 
 
 # ═══════════════════════════════════════════════
@@ -104,7 +124,7 @@ def index():
     for s in sources:
         p = db.get_parser(s.get("parser_id"))
         s["parser_name"] = p["name"] if p else "-"
-    return _render("dashboard.html", "仪表盘", "dashboard", stats=stats, sources=sources)
+    return _render("dashboard.html", i18n._("dash.title"), "dashboard", stats=stats, sources=sources)
 
 
 # ── Sources ──────────────────────────────────
@@ -120,7 +140,7 @@ def sources_page():
     channels = db.get_channels()
     templates = db.get_templates()
     sc = db.get_all_source_channels()
-    return _render("sources_page.html", "数据源", "sources",
+    return _render("sources_page.html", i18n._("src.title"), "sources",
                    sources=sources, parsers=parsers,
                    channels=channels, templates=templates, sc=sc)
 
@@ -141,7 +161,7 @@ def api_create_source():
     sid = db.create_source(data["name"], data["port"], data.get("parser_id"),
                            data.get("enabled", 1))
     if sid is None:
-        return jsonify({"error": "端口已被占用"}), 400
+        return jsonify({"error": i18n._("err.port_in_use")}), 400
     if source_mgr:
         source_mgr.start_source(sid)
     import config_manager; config_manager.sync_table("sources")
@@ -153,7 +173,7 @@ def api_update_source(sid):
     data = request.json
     old = db.get_source(sid)
     if not old:
-        return jsonify({"error": "Not found"}), 404
+        return jsonify({"error": i18n._("err.not_found")}), 404
     if source_mgr:
         source_mgr.stop_source(sid)
     db.update_source(sid, **{k: v for k, v in data.items()
@@ -172,7 +192,7 @@ def parsers_page():
     parsers = db.get_parsers()
     for p in parsers:
         p["exists"] = os.path.isfile(os.path.join(PARSERS_DIR, p["filename"]))
-    return _render("parsers_page.html", "解析器", "parsers", parsers=parsers)
+    return _render("parsers_page.html", i18n._("parser.title"), "parsers", parsers=parsers)
 
 
 @app.route("/api/parsers", methods=["GET"])
@@ -186,20 +206,20 @@ def api_parsers():
 @app.route("/api/parsers", methods=["POST"])
 def api_create_parser():
     if "name" not in request.form:
-        return jsonify({"error": "Missing name"}), 400
+        return jsonify({"error": i18n._("err.missing_name")}), 400
     name = request.form["name"]
     desc = request.form.get("description", "")
     if "file" not in request.files:
-        return jsonify({"error": "No file"}), 400
+        return jsonify({"error": i18n._("err.no_file")}), 400
     f = request.files["file"]
     if not f.filename.endswith(".py"):
-        return jsonify({"error": "Only .py files allowed"}), 400
+        return jsonify({"error": i18n._("err.py_only")}), 400
     filename = f.filename
     filepath = os.path.join(PARSERS_DIR, filename)
     f.save(filepath)
     pid = db.create_parser(name, filename, desc)
     if pid is None:
-        return jsonify({"error": "Parser filename already exists"}), 400
+        return jsonify({"error": i18n._("err.parser_exists")}), 400
     return jsonify({"id": pid})
 
 
@@ -207,7 +227,7 @@ def api_create_parser():
 def api_delete_parser(pid):
     p = db.get_parser(pid)
     if not p:
-        return jsonify({"error": "Not found"}), 404
+        return jsonify({"error": i18n._("err.not_found")}), 404
     filepath = os.path.join(PARSERS_DIR, p["filename"])
     if os.path.isfile(filepath):
         os.remove(filepath)
@@ -221,10 +241,10 @@ def api_get_parser_content(pid):
     """在线编辑：读取解析器 .py 文件内容。"""
     p = db.get_parser(pid)
     if not p:
-        return jsonify({"error": "Not found"}), 404
+        return jsonify({"error": i18n._("err.not_found")}), 404
     fpath = os.path.join(PARSERS_DIR, p["filename"])
     if not os.path.isfile(fpath):
-        return jsonify({"error": "File not found"}), 404
+        return jsonify({"error": i18n._("err.file_not_found")}), 404
     with open(fpath, "r", encoding="utf-8") as f:
         return jsonify({"filename": p["filename"], "content": f.read()})
 
@@ -234,10 +254,10 @@ def api_update_parser_content(pid):
     """在线编辑：保存解析器 .py 文件内容。"""
     p = db.get_parser(pid)
     if not p:
-        return jsonify({"error": "Not found"}), 404
+        return jsonify({"error": i18n._("err.not_found")}), 404
     data = request.json
     if "content" not in data:
-        return jsonify({"error": "Missing content"}), 400
+        return jsonify({"error": i18n._("err.missing_content")}), 400
     fpath = os.path.join(PARSERS_DIR, p["filename"])
     with open(fpath, "w", encoding="utf-8") as f:
         f.write(data["content"])
@@ -246,7 +266,7 @@ def api_update_parser_content(pid):
         parser_loader.reload_parser(p["filename"])
         return jsonify({"status": "ok"})
     except Exception as e:
-        return jsonify({"error": f"Syntax error: {str(e)}"}), 400
+        return jsonify({"error": i18n._("err.syntax_error").replace("{error}", str(e))}), 400
 
 
 @app.route("/api/parsers/<int:pid>/variables", methods=["GET"])
@@ -254,10 +274,10 @@ def api_parser_variables(pid):
     """返回解析器 return dict 中定义的所有变量名。"""
     p = db.get_parser(pid)
     if not p:
-        return jsonify({"ok": False, "error": "Not found"}), 404
+        return jsonify({"ok": False, "error": i18n._("err.not_found")}), 404
     fpath = os.path.join(PARSERS_DIR, p["filename"])
     if not os.path.isfile(fpath):
-        return jsonify({"ok": False, "error": "File not found"}), 404
+        return jsonify({"ok": False, "error": i18n._("err.file_not_found")}), 404
     with open(fpath, "r", encoding="utf-8") as f:
         content = f.read()
     import re
@@ -274,7 +294,7 @@ def api_parser_variables(pid):
 @app.route("/channels")
 def channels_page():
     channels = db.get_channels()
-    return _render("channels_page.html", "推送通道", "channels", channels=channels)
+    return _render("channels_page.html", i18n._("ch.title"), "channels", channels=channels)
 
 
 @app.route("/api/channels", methods=["GET"])
@@ -306,7 +326,7 @@ def api_update_channel(cid):
 def templates_page():
     templates = db.get_templates()
     parsers = db.get_parsers()
-    return _render("templates_page.html", "推送模板", "templates",
+    return _render("templates_page.html", i18n._("tpl.title"), "templates",
                    templates=templates, parsers=parsers)
 
 
@@ -338,7 +358,7 @@ def api_template_test_render():
     """测试模板渲染效果。"""
     data = request.json
     if not data:
-        return jsonify({"ok": False, "error": "No data"}), 400
+        return jsonify({"ok": False, "error": i18n._("err.no_data")}), 400
     engine = data.get("engine", "simple")
     title_tpl = data.get("title_tpl", "")
     content_tpl = data.get("content_tpl", "")
@@ -355,7 +375,7 @@ def api_template_test_render():
 
 @app.route("/logs")
 def logs_page():
-    return _render("logs_page.html", "系统日志", "logs")
+    return _render("logs_page.html", i18n._("log.title"), "logs")
 
 
 @app.route("/api/logs", methods=["GET"])
@@ -379,7 +399,7 @@ def api_clear_logs():
 @app.route("/messages")
 def messages_page():
     sources = db.get_sources()
-    return _render("messages.html", "消息记录", "messages", sources=sources)
+    return _render("messages.html", i18n._("msg.title"), "messages", sources=sources)
 
 
 @app.route("/api/messages", methods=["GET"])
@@ -428,7 +448,7 @@ def api_batch_messages():
     ids = data.get("ids", [])
     mode = data.get("mode", "original")
     if not ids:
-        return jsonify({"ok": False, "error": "No ids provided"})
+        return jsonify({"ok": False, "error": i18n._("err.no_ids")})
 
     results = {"ok": 0, "fail": 0, "errors": []}
     for mid in ids:
@@ -446,7 +466,7 @@ def api_batch_messages():
             db.delete_message(mid)
             results["ok"] += 1
         else:
-            return jsonify({"ok": False, "error": f"Unknown action: {action}"})
+            return jsonify({"ok": False, "error": i18n._("err.unknown_action").replace("{action}", action)})
 
     return jsonify(results)
 
@@ -530,13 +550,13 @@ def api_source_test_parse(sid):
 
     src = db.get_source(sid)
     if not src:
-        return jsonify({"ok": False, "error": "数据源不存在"}), 404
+        return jsonify({"ok": False, "error": i18n._("err.source_not_found")}), 404
     if not src.get("parser_id"):
-        return jsonify({"ok": False, "error": "此数据源未绑定解析器"})
+        return jsonify({"ok": False, "error": i18n._("err.no_parser_bound")})
 
     parser = db.get_parser(src["parser_id"])
     if not parser:
-        return jsonify({"ok": False, "error": "解析器不存在"})
+        return jsonify({"ok": False, "error": i18n._("err.parser_not_found")})
 
     try:
         raw_body = sample_body.encode("utf-8")
@@ -557,14 +577,14 @@ def api_source_test_push(sid):
 
     src = db.get_source(sid)
     if not src:
-        return jsonify({"ok": False, "error": "数据源不存在"}), 404
+        return jsonify({"ok": False, "error": i18n._("err.source_not_found")}), 404
     if not src.get("parser_id"):
-        return jsonify({"ok": False, "error": "此数据源未绑定解析器"})
+        return jsonify({"ok": False, "error": i18n._("err.no_parser_bound")})
 
     try:
         raw_body = sample_body.encode("utf-8")
         ok, msg = sm.process_message(sid, raw_body, sample_headers, sample_query)
-        return jsonify({"ok": ok, "message": "推送成功" if ok else "推送失败，请查看日志"})
+        return jsonify({"ok": ok, "message": i18n._("src.push_ok") if ok else i18n._("src.push_fail")})
     except Exception as e:
         log.logger.error(f"[test-push] sid={sid}: {e}")
         return jsonify({"ok": False, "error": str(e)})
@@ -636,10 +656,10 @@ def api_export_single(item_type, item_id):
     if item_type == "parser":
         item = db.get_parser(item_id)
         if not item:
-            return jsonify({"error": "Not found"}), 404
+            return jsonify({"error": i18n._("err.not_found")}), 404
         fpath = os.path.join(PARSERS_DIR, item["filename"])
         if not os.path.isfile(fpath):
-            return jsonify({"error": "File not found on disk"}), 404
+            return jsonify({"error": i18n._("err.file_not_found_disk")}), 404
         from flask import send_file
         return send_file(fpath, as_attachment=True, download_name=item["filename"])
 
@@ -650,11 +670,11 @@ def api_export_single(item_type, item_id):
     }
     pair = getter.get(item_type)
     if not pair:
-        return jsonify({"error": f"Unknown type: {item_type}"}), 400
+        return jsonify({"error": i18n._("err.unknown_type").replace("{type}", item_type)}), 400
     fn_get, fn_export = pair
     item = fn_get(item_id)
     if not item:
-        return jsonify({"error": "Not found"}), 404
+        return jsonify({"error": i18n._("err.not_found")}), 404
     return jsonify(fn_export(item))
 
 
@@ -687,7 +707,7 @@ def _import_preview(data, mode="insert"):
                 diff["parsers"].append({"action": "update", "id": pid, "name": name})
             else:
                 diff["parsers"].append({"action": "skip", "id": pid, "name": name,
-                                        "reason": "已存在"})
+                                        "reason": i18n._("import.already_exists")})
         else:
             diff["parsers"].append({"action": "insert", "id": pid, "name": name})
 
@@ -701,7 +721,7 @@ def _import_preview(data, mode="insert"):
                 diff["sources"].append({"action": "update", "id": sid, "name": name})
             else:
                 diff["sources"].append({"action": "skip", "id": sid, "name": name,
-                                        "reason": "已存在"})
+                                        "reason": i18n._("import.already_exists")})
         else:
             diff["sources"].append({"action": "insert", "id": sid, "name": name})
 
@@ -715,7 +735,7 @@ def _import_preview(data, mode="insert"):
                 diff["channels"].append({"action": "update", "id": cid, "name": name})
             else:
                 diff["channels"].append({"action": "skip", "id": cid, "name": name,
-                                        "reason": "已存在"})
+                                        "reason": i18n._("import.already_exists")})
         else:
             diff["channels"].append({"action": "insert", "id": cid, "name": name})
 
@@ -729,7 +749,7 @@ def _import_preview(data, mode="insert"):
                 diff["templates"].append({"action": "update", "id": tid, "name": name})
             else:
                 diff["templates"].append({"action": "skip", "id": tid, "name": name,
-                                        "reason": "已存在"})
+                                        "reason": i18n._("import.already_exists")})
         else:
             diff["templates"].append({"action": "insert", "id": tid, "name": name})
 
@@ -750,7 +770,7 @@ def _import_preview(data, mode="insert"):
             diff["source_channels"].append({
                 "action": "warn", "id": sc_id,
                 "deps": missing_deps,
-                "auto_resolve": "标记为失效" if mode == "insert" else "一并导入缺失项"
+                "auto_resolve": i18n._("import.mark_invalid") if mode == "insert" else i18n._("import.auto_import_missing")
             })
             deps["missing"].append({"id": sc_id, "deps": missing_deps})
         else:
@@ -810,10 +830,10 @@ def _import_execute(data, mode="insert"):
                     summary["parsers"]["inserted"] += 1
                 else:
                     summary["parsers"]["errors"] += 1
-                    errors.append(f"Parser already exists: {fn}")
+                    errors.append(i18n._("import.parser_exists").replace("{name}", fn))
         except Exception as e:
             summary["parsers"]["errors"] += 1
-            errors.append(f"Parser {fn}: {str(e)[:200]}")
+            errors.append(i18n._("import.parser_error").replace("{name}", fn).replace("{error}", str(e)[:200]))
 
     # ── 2. Sources ──
     existing_ids["sources"] = {s["port"]: s for s in db.get_sources()}
@@ -833,7 +853,7 @@ def _import_execute(data, mode="insert"):
                 summary["sources"]["inserted"] += 1
         except Exception as e:
             summary["sources"]["errors"] += 1
-            errors.append(f"Source {s.get('name','?')}: {str(e)[:200]}")
+            errors.append(i18n._("import.source_error").replace("{name}", s.get('name','?')).replace("{error}", str(e)[:200]))
 
     # ── 3. Channels ──
     existing_ids["channels"] = {c["name"]: c for c in db.get_channels()}
@@ -853,7 +873,7 @@ def _import_execute(data, mode="insert"):
                 summary["channels"]["inserted"] += 1
         except Exception as e:
             summary["channels"]["errors"] += 1
-            errors.append(f"Channel {name}: {str(e)[:200]}")
+            errors.append(i18n._("import.channel_error").replace("{name}", name).replace("{error}", str(e)[:200]))
 
     # ── 4. Templates ──
     existing_ids["templates"] = {t["name"]: t for t in db.get_templates()}
@@ -875,7 +895,7 @@ def _import_execute(data, mode="insert"):
                 summary["templates"]["inserted"] += 1
         except Exception as e:
             summary["templates"]["errors"] += 1
-            errors.append(f"Template {name}: {str(e)[:200]}")
+            errors.append(i18n._("import.template_error").replace("{name}", name).replace("{error}", str(e)[:200]))
 
     # ── 5. Source-Channels ──
     for sc in data.get("source_channels", []):
@@ -911,7 +931,7 @@ def _import_execute(data, mode="insert"):
                     summary["source_channels"]["inserted"] += 1
         except Exception as e:
             summary["source_channels"]["errors"] += 1
-            errors.append(f"SourceChannel {sc.get('id','?')}: {str(e)[:200]}")
+            errors.append(i18n._("import.source_channel_error").replace("{name}", sc.get('id','?')).replace("{error}", str(e)[:200]))
 
     # ── 6. System Config ──
     for k, v in data.get("system_config", {}).items():
@@ -920,7 +940,7 @@ def _import_execute(data, mode="insert"):
             summary["system_config"]["updated"] += 1
         except Exception as e:
             summary["system_config"]["errors"] += 1
-            errors.append(f"Config {k}: {str(e)[:200]}")
+            errors.append(i18n._("import.config_error").replace("{name}", k).replace("{error}", str(e)[:200]))
 
     return {"status": "ok" if not errors else "partial", "summary": summary, "errors": errors}
 
@@ -953,7 +973,7 @@ def api_restore():
     from config_manager import CONFIG_DIR
 
     if "file" not in request.files:
-        return jsonify({"ok": False, "error": "请上传文件"})
+        return jsonify({"ok": False, "error": i18n._("err.upload_file_required")})
 
     file = request.files["file"]
     dry_run = request.args.get("dry_run") == "1"
@@ -961,7 +981,7 @@ def api_restore():
     try:
         zf = zipfile.ZipFile(io.BytesIO(file.read()))
     except Exception as e:
-        return jsonify({"ok": False, "error": f"ZIP 解析失败: {e}"})
+        return jsonify({"ok": False, "error": f"{i18n._('err.zip_parse_fail')} {e}"})
 
     # 列出内容
     config_files = [n for n in zf.namelist() if n.startswith("config/")]
@@ -1014,7 +1034,7 @@ def api_import():
     """
     data = request.json
     if not data:
-        return jsonify({"error": "Invalid JSON"}), 400
+        return jsonify({"error": i18n._("err.invalid_json")}), 400
 
     mode = request.args.get("mode", "insert")
     dry_run = request.args.get("dry_run", "")
@@ -1043,9 +1063,10 @@ def settings_page():
         "dnd_end": db.get_config("dnd_end", "07:00"),
         "cleanup": db.get_cleanup_config(),
     }
-    return _render("settings.html", "系统设置", "settings",
+    translated_statuses = {s: i18n._(f"status.{s}") for s in db.MESSAGE_STATUSES}
+    return _render("settings.html", i18n._("set.title"), "settings",
                    config=config, version=VERSION,
-                   message_statuses=db.MESSAGE_STATUSES)
+                   message_statuses=translated_statuses)
 
 
 @app.route("/api/settings", methods=["POST"])

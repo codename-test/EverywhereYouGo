@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="page-header d-flex justify-content-between align-items-center mb-3">
-    <h2><i class="bi bi-file-text"></i> 推送模板</h2>
+    <h2><i class="bi bi-file-text"></i> {{ _("tpl.title") }}</h2>
     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#tplModal" onclick="resetTplForm()">
-        <i class="bi bi-plus-lg"></i> 新建模板
+        <i class="bi bi-plus-lg"></i> {{ _("tpl.new") }}
     </button>
 </div>
 
 <div class="alert alert-info">
-    <i class="bi bi-info-circle"></i> 定义消息推送格式。选择解析器后可查看该解析器产出的所有可用变量。
+    <i class="bi bi-info-circle"></i> {{ _("tpl.info") }}
 </div>
 
 <div class="card">
@@ -16,10 +16,10 @@
         <table class="table table-hover mb-0">
             <thead>
                 <tr>
-                    <th>名称</th>
-                    <th>引擎</th>
-                    <th>标题模板</th>
-                    <th>操作</th>
+                    <th>{{ _("tpl.col_name") }}</th>
+                    <th>{{ _("tpl.col_engine") }}</th>
+                    <th>{{ _("tpl.col_title_tpl") }}</th>
+                    <th>{{ _("tpl.col_actions") }}</th>
                 </tr>
             </thead>
             <tbody id="templatesTable">
@@ -29,9 +29,9 @@
                     <td><span class="badge bg-info">{{ t.engine }}</span></td>
                     <td><small class="text-muted">{{ (t.title_tpl or '')[:50] }}</small></td>
                     <td>
-                        <button class="btn btn-icon btn-outline-primary btn-sm" onclick="openEditTemplate({{ t.id }})" title="编辑"><i class="bi bi-pencil"></i></button>
-                        <button class="btn btn-icon btn-outline-info btn-sm" onclick="exportItem('template',{{ t.id }})" title="导出"><i class="bi bi-download"></i></button>
-                        <button class="btn btn-icon btn-outline-danger btn-sm" onclick="deleteTemplate({{ t.id }})" title="删除"><i class="bi bi-trash"></i></button>
+                        <button class="btn btn-icon btn-outline-primary btn-sm" onclick="openEditTemplate({{ t.id }})" title="{{ _("common.edit") }}"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-icon btn-outline-info btn-sm" onclick="exportItem('template',{{ t.id }})" title="{{ _("common.export") }}"><i class="bi bi-download"></i></button>
+                        <button class="btn btn-icon btn-outline-danger btn-sm" onclick="deleteTemplate({{ t.id }})" title="{{ _("common.delete") }}"><i class="bi bi-trash"></i></button>
                     </td>
                 </tr>
                 {% endfor %}
@@ -45,7 +45,7 @@
     <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="tplModalTitle">新建模板</h5>
+                <h5 class="modal-title" id="tplModalTitle">{{ _("tpl.modal_new") }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -55,39 +55,39 @@
                     <div class="row">
                         <div class="col-md-8">
                             <div class="mb-3">
-                                <label class="form-label">模板名称</label>
-                                <input type="text" class="form-control" id="editTplName" placeholder="例如：标准推送模板" required>
+                                <label class="form-label">{{ _("tpl.name_label") }}</label>
+                                <input type="text" class="form-control" id="editTplName" placeholder="{{ _("tpl.name_placeholder") }}" required>
                             </div>
                         </div>
                         <div class="col-md-4">
                             <div class="mb-3">
-                                <label class="form-label">模板引擎</label>
+                                <label class="form-label">{{ _("tpl.engine_label") }}</label>
                                 <select class="form-select" id="editTplEngine" onchange="onEngineChange()">
                                     <option value="jinja2">Jinja2</option>
                                     <option value="simple">Simple</option>
                                 </select>
-                                <div class="form-text">Jinja2 支持条件/循环，Simple 仅替换变量</div>
+                                <div class="form-text">{{ _("tpl.engine_help") }}</div>
                             </div>
                         </div>
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label">参考解析器</label>
+                        <label class="form-label">{{ _("tpl.ref_parser") }}</label>
                         <select class="form-select" id="editTplParser" onchange="loadParserVars()">
-                            <option value="">-- 选择解析器查看可用变量 --</option>
+                            <option value="">{{ _("tpl.ref_parser_placeholder") }}</option>
                             {% for p in parsers %}
                             <option value="{{ p.id }}">{{ p.name }}</option>
                             {% endfor %}
                         </select>
-                        <div class="form-text">选择解析器后，下方将展示该解析器产出的所有可用变量</div>
+                        <div class="form-text">{{ _("tpl.ref_parser_help") }}</div>
                     </div>
                     
                     <!-- 变量展示区 -->
                     <div id="parserVarsSection" style="display:none" class="mb-3">
                         <div class="card bg-light">
                             <div class="card-header py-2">
-                                <strong><i class="bi bi-braces"></i> 可用变量</strong>
-                                <small class="text-muted ms-2">点击变量名可复制到剪贴板</small>
+                                <strong><i class="bi bi-braces"></i> {{ _("tpl.avail_vars") }}</strong>
+                                <small class="text-muted ms-2">{{ _("tpl.click_to_copy") }}</small>
                             </div>
                             <div class="card-body py-2">
                                 <div id="parserVarsList"></div>
@@ -96,27 +96,27 @@
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label">标题模板</label>
-                        <input type="text" class="form-control" id="editTplTitle" placeholder="消息标题">
-                        <div class="form-text">支持变量替换，如 <code>{% raw %}{{ msg.title }}{% endraw %}</code> 或 <code>{title}</code></div>
+                        <label class="form-label">{{ _("tpl.title_tpl_label") }}</label>
+                        <input type="text" class="form-control" id="editTplTitle" placeholder="{{ _("tpl.title_tpl_placeholder") }}">
+                        <div class="form-text">{{ _("tpl.title_tpl_help") }}</div>
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label">内容模板</label>
-                        <textarea class="form-control" id="editTplContent" rows="8" placeholder="消息正文内容"></textarea>
-                        <div class="form-text">支持多行文本和变量替换</div>
+                        <label class="form-label">{{ _("tpl.content_tpl_label") }}</label>
+                        <textarea class="form-control" id="editTplContent" rows="8" placeholder="{{ _("tpl.content_tpl_placeholder") }}"></textarea>
+                        <div class="form-text">{{ _("tpl.content_tpl_help") }}</div>
                     </div>
                     
                     <div class="d-flex gap-2">
                         <button type="button" class="btn btn-outline-secondary btn-sm" onclick="testTplRender()">
-                            <i class="bi bi-play"></i> 测试渲染
+                            <i class="bi bi-play"></i> {{ _("tpl.test_render") }}
                         </button>
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                <button type="button" class="btn btn-primary" onclick="saveTemplate()">保存</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("common.cancel") }}</button>
+                <button type="button" class="btn btn-primary" onclick="saveTemplate()">{{ _("common.save") }}</button>
             </div>
         </div>
     </div>
@@ -126,7 +126,7 @@
 <div class="toast-container position-fixed bottom-0 end-0 p-3">
     <div id="toast" class="toast" role="alert">
         <div class="toast-header">
-            <strong class="me-auto" id="toast-title">提示</strong>
+            <strong class="me-auto" id="toast-title">{{ _("common.tip") }}</strong>
             <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
         </div>
         <div class="toast-body" id="toast-body"></div>
@@ -147,7 +147,7 @@ function showToast(message, type = 'success') {
     const title = document.getElementById('toast-title');
     const body = document.getElementById('toast-body');
     
-    title.textContent = type === 'success' ? '成功' : type === 'danger' ? '错误' : '提示';
+    title.textContent = type === 'success' ? t("common.success") : type === 'danger' ? t("common.error") : t("common.tip");
     body.textContent = message;
     toast.className = `toast bg-${type === 'success' ? 'success' : type === 'danger' ? 'danger' : 'info'} text-white`;
     
@@ -156,7 +156,7 @@ function showToast(message, type = 'success') {
 }
 
 function resetTplForm() {
-    document.getElementById('tplModalTitle').textContent = '新建模板';
+    document.getElementById('tplModalTitle').textContent = t("tpl.modal_new");
     document.getElementById('editTplId').value = '';
     document.getElementById('editTplName').value = '';
     document.getElementById('editTplEngine').value = 'jinja2';
@@ -196,15 +196,15 @@ function loadParserVars() {
         .then(r => r.json())
         .then(data => {
             if (!data.ok) {
-                const errMsg = data.error || '未知错误';
-                varsList.innerHTML = `<div class="text-danger">获取变量失败: ${errMsg}</div>`;
+                const errMsg = data.error || t("common.unknown_error");
+                varsList.innerHTML = `<div class="text-danger">${t("tpl.get_vars_fail")} ${errMsg}</div>`;
                 varsSection.style.display = 'block';
                 return;
             }
             
             const vars = data.variables || [];
             if (vars.length === 0) {
-                varsList.innerHTML = '<div class="text-muted">该解析器未返回任何变量</div>';
+                varsList.innerHTML = `<div class="text-muted">${t("tpl.no_vars")}</div>`;
                 varsSection.style.display = 'block';
                 return;
             }
@@ -215,13 +215,13 @@ function loadParserVars() {
                 const shortName = v.split('.').pop();
                 return `<span class="badge bg-light text-dark border me-2 mb-2 py-2 px-3" style="cursor:pointer;font-size:0.9rem;" onclick="insertVarToTpl('${shortName}','${v}')">${shortName}</span>`;
             }).join('');
-            html += '<div class="form-text mt-1">💡 点击变量名插入到光标所在编辑框</div>';
+            html += `<div class="form-text mt-1">${t("tpl.click_to_insert")}</div>`;
             
             varsList.innerHTML = html;
             varsSection.style.display = 'block';
         })
         .catch(err => {
-            varsList.innerHTML = `<div class="text-danger">请求失败: ${err}</div>`;
+            varsList.innerHTML = `<div class="text-danger">${t("tpl.request_fail")} ${err}</div>`;
             varsSection.style.display = 'block';
         });
 }
@@ -246,15 +246,15 @@ function insertVarToTpl(shortName, fullPath) {
 }
 
 function openEditTemplate(id) {
-    const t = templatesData.find(x => x.id === id);
-    if (!t) return;
+    const tpl = templatesData.find(x => x.id === id);
+    if (!tpl) return;
     
-    document.getElementById('tplModalTitle').textContent = '编辑模板';
-    document.getElementById('editTplId').value = t.id;
-    document.getElementById('editTplName').value = t.name;
-    document.getElementById('editTplEngine').value = t.engine;
-    document.getElementById('editTplTitle').value = t.title_tpl || '';
-    document.getElementById('editTplContent').value = t.content_tpl || '';
+    document.getElementById('tplModalTitle').textContent = t("tpl.modal_edit");
+    document.getElementById('editTplId').value = tpl.id;
+    document.getElementById('editTplName').value = tpl.name;
+    document.getElementById('editTplEngine').value = tpl.engine;
+    document.getElementById('editTplTitle').value = tpl.title_tpl || '';
+    document.getElementById('editTplContent').value = tpl.content_tpl || '';
     document.getElementById('parserVarsSection').style.display = 'none';
     
     new bootstrap.Modal(document.getElementById('tplModal')).show();
@@ -279,10 +279,10 @@ function saveTemplate() {
     })
     .then(r => r.json())
     .then(() => {
-        showToast('保存成功');
+        showToast(t("common.saved"));
         setTimeout(() => location.reload(), 500);
     })
-    .catch(err => showToast('保存失败：' + err, 'danger'));
+    .catch(err => showToast(t("ch.save_fail") + err, 'danger'));
 }
 
 function testTplRender() {
@@ -291,19 +291,19 @@ function testTplRender() {
     const content_tpl = document.getElementById('editTplContent').value;
     
     if (!title_tpl && !content_tpl) {
-        showToast('请先填写标题或内容模板', 'danger');
+        showToast(t("tpl.fill_title_or_content"), 'danger');
         return;
     }
     
     // 构造测试数据（与解析器输出格式一致：title/content + 展平字段）
     const msg = {
-        title: '测试电影',
-        content: '- **Event**: library.new\n- **Item_Name**: 测试电影\n- **Item_Type**: Movie',
+        title: t("tpl.test_title"),
+        content: '- **Event**: library.new\n- **Item_Name**: ' + t("tpl.test_title") + '\n- **Item_Type**: Movie',
         Event: 'library.new',
-        Item_Name: '测试电影',
+        Item_Name: t("tpl.test_title"),
         Item_Type: 'Movie',
         Item_ProductionYear: '2024',
-        Item_Overview: '这是一个测试电影的简介...',
+        Item_Overview: t("tpl.test_overview"),
         Server_Name: 'MyEmby',
         Server_Url: 'https://emby.example.com'
     };
@@ -317,26 +317,26 @@ function testTplRender() {
     .then(res => {
         if (res.ok) {
             const result = res.result;
-            let msg = '【渲染结果】\n\n';
-            msg += `标题: ${result.title}\n\n`;
-            msg += `内容:\n${result.content}`;
+            let msg = t("tpl.render_result") + '\n\n';
+            msg += `${t("tpl.result_title")} ${result.title}\n\n`;
+            msg += `${t("tpl.result_content")}\n${result.content}`;
             alert(msg);
         } else {
-            showToast('渲染失败: ' + (res.error || '未知错误'), 'danger');
+            showToast(t("tpl.render_fail") + ' ' + (res.error || t("common.unknown_error")), 'danger');
         }
     })
-    .catch(err => showToast('测试失败: ' + err, 'danger'));
+    .catch(err => showToast(t("tpl.test_fail") + ' ' + err, 'danger'));
 }
 
 function deleteTemplate(id) {
-    if (!confirm('确定删除此模板？')) return;
+    if (!confirm(t("tpl.confirm_delete"))) return;
     fetch(`/api/templates/${id}`, {method: 'DELETE'})
     .then(r => r.json())
     .then(() => {
-        showToast('已删除');
+        showToast(t("common.deleted"));
         setTimeout(() => location.reload(), 500);
     })
-    .catch(err => showToast('删除失败：' + err, 'danger'));
+    .catch(err => showToast(t("ch.delete_fail") + err, 'danger'));
 }
 
 document.addEventListener('DOMContentLoaded', onEngineChange);

@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
-<h2><i class="bi bi-gear"></i> 系统设置</h2>
+<h2><i class="bi bi-gear"></i> {{ _("set.title") }}</h2>
 <div class="card"><div class="card-body">
 <form id="settingsForm">
   <div class="mb-3">
-    <label class="form-label">日志写入级别</label>
-    <div class="form-text mb-1">低于此级别的日志不写入数据库。默认 DEBUG 记录全部，日志页面可另行筛选显示。</div>
+    <label class="form-label">{{ _("set.log_level") }}</label>
+    <div class="form-text mb-1">{{ _("set.log_level_help") }}</div>
     <select class="form-select" name="log_level">
       <option value="DEBUG" {{ 'selected' if config.log_level == 'DEBUG' }}>DEBUG</option>
       <option value="INFO" {{ 'selected' if config.log_level == 'INFO' }}>INFO</option>
@@ -14,18 +14,18 @@
     </select>
   </div>
   <div class="mb-3">
-    <label class="form-label"><input type="checkbox" name="dnd_enabled" value="1" {{ 'checked' if config.dnd_enabled == '1' }}> 开启免打扰</label>
+    <label class="form-label"><input type="checkbox" name="dnd_enabled" value="1" {{ 'checked' if config.dnd_enabled == '1' }}> {{ _("set.dnd_enable") }}</label>
     <div class="row g-2 mt-1">
-      <div class="col"><input class="form-control" name="dnd_start" value="{{ config.dnd_start }}" placeholder="开始时间 HH:MM"></div>
-      <div class="col"><input class="form-control" name="dnd_end" value="{{ config.dnd_end }}" placeholder="结束时间 HH:MM"></div>
+      <div class="col"><input class="form-control" name="dnd_start" value="{{ config.dnd_start }}" placeholder="{{ _('set.dnd_start_placeholder') }}"></div>
+      <div class="col"><input class="form-control" name="dnd_end" value="{{ config.dnd_end }}" placeholder="{{ _('set.dnd_end_placeholder') }}"></div>
     </div>
   </div>
   <hr>
   <div class="mb-3">
-    <label class="form-label">消息自动清理</label>
-    <div class="form-text mb-2">每种状态独立设置保留时长（小时），0 = 永不清理。定时任务每 10 分钟执行一次。</div>
+    <label class="form-label">{{ _("set.cleanup_title") }}</label>
+    <div class="form-text mb-2">{{ _("set.cleanup_help") }}</div>
     <table class="table table-sm mb-2">
-      <thead><tr><th>状态</th><th>说明</th><th style="width:120px">保留时长(小时)</th></tr></thead>
+      <thead><tr><th>{{ _("set.cleanup_col_status") }}</th><th>{{ _("set.cleanup_col_desc") }}</th><th style="width:120px">{{ _("set.cleanup_col_hours") }}</th></tr></thead>
       <tbody>
         {% for status, desc in message_statuses.items() %}
         <tr>
@@ -36,30 +36,36 @@
         {% endfor %}
       </tbody>
     </table>
-    <button type="button" class="btn btn-outline-danger btn-sm" onclick="runCleanup()"><i class="bi bi-trash"></i> 立即清理</button>
+    <button type="button" class="btn btn-outline-danger btn-sm" onclick="runCleanup()"><i class="bi bi-trash"></i> {{ _("set.cleanup_now") }}</button>
   </div>
-  <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存设置</button>
+  <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> {{ _("set.save") }}</button>
 </form>
 </div></div>
-<p class="text-muted mt-2">版本: {{ version }}</p>
+<p class="text-muted mt-2">{{ _("set.version") }} {{ version }}</p>
 
 <div class="card mt-4">
-  <div class="card-header">备份</div>
+  <div class="card-header">{{ _("set.backup_title") }}</div>
   <div class="card-body">
-    <p class="text-muted small">备份全部配置（解析器代码 + JSON 配置文件），打包为 ZIP。</p>
-    <button class="btn btn-outline-primary" onclick="backupAll()"><i class="bi bi-download"></i> 下载备份</button>
+    <p class="text-muted small">{{ _("set.backup_desc") }}</p>
+    <button class="btn btn-outline-primary" onclick="backupAll()"><i class="bi bi-download"></i> {{ _("set.backup_download") }}</button>
   </div>
 </div>
 
 <div class="card mt-4">
-  <div class="card-header">恢复</div>
+  <div class="card-header">{{ _("set.restore_title") }}</div>
   <div class="card-body">
-    <p class="text-muted small">上传备份 ZIP 文件恢复配置。</p>
+    <p class="text-muted small">{{ _("set.restore_desc") }}</p>
     <div class="mb-3">
-      <input class="form-control" type="file" id="importFile" accept=".zip">
+      <input class="form-control d-none" type="file" id="importFile" accept=".zip" onchange="onFileSelected(this)">
+      <div class="d-flex align-items-center gap-2">
+        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('importFile').click()">
+          <i class="bi bi-folder2-open"></i> {{ _("set.choose_file") }}
+        </button>
+        <span class="text-muted small" id="importFileName">{{ _("set.no_file_selected") }}</span>
+      </div>
     </div>
-    <button class="btn btn-outline-warning" onclick="previewImport()" id="previewBtn"><i class="bi bi-eye"></i> 预览恢复</button>
-    <button class="btn btn-danger d-none ms-2" id="confirmImportBtn" onclick="confirmImport()"><i class="bi bi-check-lg"></i> 确认恢复</button>
+    <button class="btn btn-outline-warning" onclick="previewImport()" id="previewBtn"><i class="bi bi-eye"></i> {{ _("set.restore_preview") }}</button>
+    <button class="btn btn-danger d-none ms-2" id="confirmImportBtn" onclick="confirmImport()"><i class="bi bi-check-lg"></i> {{ _("set.restore_confirm") }}</button>
   </div>
 </div>
 
@@ -75,7 +81,7 @@ document.getElementById('settingsForm').addEventListener('submit', function(e){
   data.dnd_enabled = data.dnd_enabled ? '1' : '0';
   fetch('/api/settings', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
     .then(function(r){ return r.json(); })
-    .then(function(d){ if(d.status=='ok') alert('保存成功'); });
+    .then(function(d){ if(d.status=='ok') alert(t("common.saved")); });
 });
 
 function getCleanupOverrides() {
@@ -92,14 +98,14 @@ function runCleanup() {
   for (var s in overrides) {
     if (overrides[s] > 0) desc.push(s + ' ' + overrides[s] + 'h');
   }
-  if (!desc.length) { alert('所有状态保留时长均为 0，不会清理任何消息。'); return; }
-  if (!confirm('立即清理？\n' + desc.join('\n') + '\n不可恢复。')) return;
+  if (!desc.length) { alert(t("set.all_zero_no_cleanup")); return; }
+  if (!confirm(t("set.confirm_cleanup") + '\n' + desc.join('\n') + '\n' + t("set.irreversible"))) return;
   fetch('/api/messages/cleanup', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({overrides: overrides})
   }).then(function(r){ return r.json(); }).then(function(d){
-    alert('已清理 ' + d.deleted + ' 条消息');
+    alert(t("set.cleaned_n").replace("{n}", d.deleted));
   });
 }
 
@@ -117,14 +123,18 @@ function backupAll() {
 
 var _importData = null;
 
+function onFileSelected(input) {
+  var nameEl = document.getElementById('importFileName');
+  nameEl.textContent = input.files.length ? input.files[0].name : t("set.no_file_selected");
+}
+
 function previewImport() {
   var fileInput = document.getElementById('importFile');
-  if (!fileInput.files.length) { alert('请先选择 ZIP 备份文件'); return; }
+  if (!fileInput.files.length) { alert(t("set.select_zip_first")); return; }
   var file = fileInput.files[0];
   var formData = new FormData();
   formData.append('file', file);
-  var mode = document.querySelector('input[name="importMode"]:checked').value;
-  fetch('/api/restore?dry_run=1&mode=' + mode, {
+  fetch('/api/restore?dry_run=1', {
     method:'POST',
     body: formData
   })
@@ -133,21 +143,21 @@ function previewImport() {
     _importData = d;
     renderDiff(d);
   })
-  .catch(function(err) { alert('请求失败: ' + err.message); });
+  .catch(function(err) { alert(t("set.request_fail") + ' ' + err.message); });
 }
 
 function renderDiff(data) {
   var div = document.getElementById('importResult');
   div.classList.remove('d-none');
-  var html = '<h5>恢复预览</h5>';
-  html += '<p class="text-muted small">ZIP 中包含以下内容：</p>';
-  html += '<table class="table table-sm table-bordered"><thead><tr><th>类型</th><th>文件</th></tr></thead><tbody>';
-  (data.config||[]).forEach(function(f) { html += '<tr><td>配置</td><td><code>' + f + '</code></td></tr>'; });
-  (data.parsers||[]).forEach(function(f) { html += '<tr><td>解析器</td><td><code>' + f + '</code></td></tr>'; });
+  var html = '<h5>' + t("set.restore_preview") + '</h5>';
+  html += '<p class="text-muted small">' + t("set.zip_contents") + '</p>';
+  html += '<table class="table table-sm table-bordered"><thead><tr><th>' + t("set.diff_type") + '</th><th>' + t("set.diff_file") + '</th></tr></thead><tbody>';
+  (data.config||[]).forEach(function(f) { html += '<tr><td>' + t("set.diff_config") + '</td><td><code>' + f + '</code></td></tr>'; });
+  (data.parsers||[]).forEach(function(f) { html += '<tr><td>' + t("set.diff_parser") + '</td><td><code>' + f + '</code></td></tr>'; });
   html += '</tbody></table>';
 
   if (data.errors && data.errors.length) {
-    html += '<div class="alert alert-danger"><strong>错误：</strong><ul>';
+    html += '<div class="alert alert-danger"><strong>' + t("set.diff_error") + '</strong><ul>';
     data.errors.forEach(function(e) { html += '<li>' + e + '</li>'; });
     html += '</ul></div>';
   }
@@ -162,24 +172,23 @@ function renderDiff(data) {
 }
 
 function confirmImport() {
-  if (!_importData) { alert('请先预览'); return; }
-  var mode = document.querySelector('input[name="importMode"]:checked').value;
-  if (!confirm('确认执行恢复？当前配置将被覆盖，服务将重启。')) return;
+  if (!_importData) { alert(t("set.preview_first")); return; }
+  if (!confirm(t("set.confirm_restore"))) return;
   var fileInput = document.getElementById('importFile');
   var formData = new FormData();
   formData.append('file', fileInput.files[0]);
-  fetch('/api/restore?mode=' + mode, {
+  fetch('/api/restore', {
     method:'POST',
     body: formData
   })
   .then(r => r.json())
   .then(function(d) {
     if (d.ok) {
-      document.getElementById('importResult').innerHTML = '<div class="alert alert-success">恢复完成！服务正在重启...</div>';
+      document.getElementById('importResult').innerHTML = '<div class="alert alert-success">' + t("set.restore_done") + '</div>';
       document.getElementById('confirmImportBtn').classList.add('d-none');
       setTimeout(function() { location.reload(); }, 3000);
     } else {
-      document.getElementById('importResult').innerHTML = '<div class="alert alert-danger">恢复失败: ' + (d.error||'未知错误') + '</div>';
+      document.getElementById('importResult').innerHTML = '<div class="alert alert-danger">' + t("set.restore_fail") + ' ' + (d.error||t("common.unknown_error")) + '</div>';
     }
   });
 }

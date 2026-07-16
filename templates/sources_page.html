@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="page-header d-flex justify-content-between align-items-center mb-3">
-    <h2><i class="bi bi-inbox"></i> 数据源管理</h2>
+    <h2><i class="bi bi-inbox"></i> {{ _("src.title") }}</h2>
     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#sourceModal" onclick="resetSourceForm()">
-      <i class="bi bi-plus-lg"></i> 新建数据源
+      <i class="bi bi-plus-lg"></i> {{ _("src.new") }}
     </button>
 </div>
 
@@ -12,28 +12,28 @@
 <!-- Modal -->
 <div class="modal fade" id="sourceModal" tabindex="-1">
   <div class="modal-dialog modal-lg"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title">数据源配置</h5>
+    <div class="modal-header"><h5 class="modal-title">{{ _("src.config") }}</h5>
       <button class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
       <input type="hidden" id="src-id">
       <div class="row g-3 mb-3">
-        <div class="col-md-4"><label class="form-label">名称</label>
+        <div class="col-md-4"><label class="form-label">{{ _("src.name") }}</label>
           <input class="form-control" id="src-name"></div>
-        <div class="col-md-2"><label class="form-label">监听端口</label>
+        <div class="col-md-2"><label class="form-label">{{ _("src.port") }}</label>
           <input class="form-control" type="number" id="src-port" min="1024" max="65535"></div>
-        <div class="col-md-6"><label class="form-label">解析器</label>
+        <div class="col-md-6"><label class="form-label">{{ _("src.parser") }}</label>
           <div class="input-group">
-            <select class="form-select" id="src-parser"><option value="">-- 选择 --</option>
+            <select class="form-select" id="src-parser"><option value="">{{ _("src.select_parser") }}</option>
               {% for p in parsers %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
             </select>
-            <button class="btn btn-outline-info btn-sm" type="button" onclick="showAvailKeys()" title="展示解析器输出的变量名，点击可插入到条件表达式"><i class="bi bi-list-columns-reverse"></i> 变量</button>
+            <button class="btn btn-outline-info btn-sm" type="button" onclick="showAvailKeys()" title="{{ _('src.variables_title') }}"><i class="bi bi-list-columns-reverse"></i> {{ _("src.variables") }}</button>
           </div>
         </div>
       </div>
       <div id="avail-keys-panel" class="collapse mb-3">
         <div class="card card-body p-2" style="max-height:200px;overflow-y:auto;font-size:0.8rem;">
           <div class="d-flex justify-content-between align-items-center mb-1">
-            <strong>可用变量（点击复制）</strong>
+            <strong>{{ _("src.avail_keys") }}</strong>
             <small class="text-muted" id="avail-keys-count"></small>
           </div>
           <div id="avail-keys-list"></div>
@@ -41,31 +41,31 @@
       </div>
       <div class="form-check mb-3">
         <input class="form-check-input" type="checkbox" id="src-enabled" checked>
-        <label class="form-check-label">启用</label>
+        <label class="form-check-label">{{ _("src.enabled") }}</label>
       </div>
 
-      <hr><h6>通道绑定 <button class="btn btn-outline-primary btn-sm ms-2" onclick="addBindingRow()"><i class="bi bi-plus"></i></button>
+      <hr><h6>{{ _("src.bindings") }} <button class="btn btn-outline-primary btn-sm ms-2" onclick="addBindingRow()"><i class="bi bi-plus"></i></button>
         <div class="row g-2 mt-1 mb-1">
-          <div class="col-md-3"><small class="text-muted">推送通道</small></div>
-          <div class="col-md-3"><small class="text-muted">推送模板</small></div>
-          <div class="col-md-2"><small class="text-muted">条件表达式</small></div>
-          <div class="col-md-1"><small class="text-muted">优先级</small></div>
-          <div class="col-md-1 text-center"><small class="text-muted">紧急</small></div>
-          <div class="col-md-2 text-center"><small class="text-muted">操作</small></div>
+          <div class="col-md-3"><small class="text-muted">{{ _("src.bind_channel") }}</small></div>
+          <div class="col-md-3"><small class="text-muted">{{ _("src.bind_template") }}</small></div>
+          <div class="col-md-2"><small class="text-muted">{{ _("src.condition") }}</small></div>
+          <div class="col-md-1"><small class="text-muted">{{ _("src.priority") }}</small></div>
+          <div class="col-md-1 text-center"><small class="text-muted">{{ _("src.urgent") }}</small></div>
+          <div class="col-md-2 text-center"><small class="text-muted">{{ _("common.actions") }}</small></div>
       <div id="bindings-container"></div>
 
-      <hr><h6>样本数据 <button class="btn btn-outline-secondary btn-sm ms-2" onclick="refreshSamples()"><i class="bi bi-arrow-repeat"></i> 刷新</button></h6>
-      <div id="samples-list"><span class="text-muted">暂无样本数据</span></div>
+      <hr><h6>{{ _("src.samples") }} <button class="btn btn-outline-secondary btn-sm ms-2" onclick="refreshSamples()"><i class="bi bi-arrow-repeat"></i> {{ _("common.refresh") }}</button></h6>
+      <div id="samples-list"><span class="text-muted">{{ _("src.no_samples") }}</span></div>
       <div id="parse-result" class="mt-2" style="display:none;"></div>
       <div class="mt-2">
-        <button class="btn btn-info btn-sm" onclick="testParse()"><i class="bi bi-play"></i> 测试解析</button>
-        <button class="btn btn-warning btn-sm ms-1" onclick="testPush()"><i class="bi bi-send"></i> 测试推送</button>
-        <button class="btn btn-secondary btn-sm ms-1" onclick="copyAIPrompt()"><i class="bi bi-clipboard"></i> 🤖 复制AI提示词</button>
+        <button class="btn btn-info btn-sm" onclick="testParse()"><i class="bi bi-play"></i> {{ _("src.test_parse") }}</button>
+        <button class="btn btn-warning btn-sm ms-1" onclick="testPush()"><i class="bi bi-send"></i> {{ _("src.test_push") }}</button>
+        <button class="btn btn-secondary btn-sm ms-1" onclick="copyAIPrompt()"><i class="bi bi-clipboard"></i> {{ _("src.copy_ai_prompt") }}</button>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-      <button class="btn btn-primary" onclick="saveSource()">保存</button>
+      <button class="btn btn-secondary" data-bs-dismiss="modal">{{ _("common.cancel") }}</button>
+      <button class="btn btn-primary" onclick="saveSource()">{{ _("common.save") }}</button>
     </div>
   </div></div>
 </div>
@@ -93,7 +93,7 @@ function resetSourceForm() {
   document.getElementById('src-parser').value = '';
   document.getElementById('src-enabled').checked = true;
   document.getElementById('bindings-container').innerHTML = '';
-  document.getElementById('samples-list').innerHTML = '<span class="text-muted">暂无样本数据</span>';
+  document.getElementById('samples-list').innerHTML = '<span class="text-muted">' + t("src.no_samples") + '</span>';
   document.getElementById('parse-result').style.display = 'none';
   samples = [];
 }
@@ -128,17 +128,17 @@ function renderSources() {
       <col style="width:12%"><col style="width:6%"><col style="width:14%"><col style="width:34%"><col style="width:18%"><col style="width:7%"><col style="width:9%">
     </colgroup>
     <thead><tr>
-      <th style="cursor:pointer;" onclick="if(sourceSortKey==='name'){sourceSortAsc=!sourceSortAsc;}else{sourceSortKey='name';sourceSortAsc=true;}renderSources();">名称${sortIcon('name')}</th>
-      <th style="cursor:pointer;" onclick="if(sourceSortKey==='port'){sourceSortAsc=!sourceSortAsc;}else{sourceSortKey='port';sourceSortAsc=true;}renderSources();">端口${sortIcon('port')}</th>
-      <th style="cursor:pointer;" onclick="if(sourceSortKey==='parser_name'){sourceSortAsc=!sourceSortAsc;}else{sourceSortKey='parser_name';sourceSortAsc=true;}renderSources();">解析器${sortIcon('parser_name')}</th>
-      <th>条件</th>
-      <th>通道</th>
-      <th>状态</th>
+      <th style="cursor:pointer;" onclick="if(sourceSortKey==='name'){sourceSortAsc=!sourceSortAsc;}else{sourceSortKey='name';sourceSortAsc=true;}renderSources();">${t("common.name")}${sortIcon('name')}</th>
+      <th style="cursor:pointer;" onclick="if(sourceSortKey==='port'){sourceSortAsc=!sourceSortAsc;}else{sourceSortKey='port';sourceSortAsc=true;}renderSources();">${t("dash.col_port")}${sortIcon('port')}</th>
+      <th style="cursor:pointer;" onclick="if(sourceSortKey==='parser_name'){sourceSortAsc=!sourceSortAsc;}else{sourceSortKey='parser_name';sourceSortAsc=true;}renderSources();">${t("dash.col_parser")}${sortIcon('parser_name')}</th>
+      <th>${t("src.col_condition")}</th>
+      <th>${t("src.col_channel")}</th>
+      <th>${t("common.status")}</th>
       <th></th>
     </tr><tr>
-      <th>${filterInput('name', '搜索名称')}</th>
-      <th>${filterInput('port', '端口')}</th>
-      <th>${filterInput('parser', '搜索解析器')}</th>
+      <th>${filterInput('name', t("src.search_name"))}</th>
+      <th>${filterInput('port', t("src.port_filter"))}</th>
+      <th>${filterInput('parser', t("src.search_parser"))}</th>
       <th></th><th></th><th></th><th></th>
     </tr></thead><tbody>`;
   data.forEach(s=>{
@@ -146,15 +146,15 @@ function renderSources() {
     let n = sc.length || 1;
     let srcCells = `<td rowspan="${n}"><strong>${s.name}</strong></td>
       <td rowspan="${n}"><code>${s.port}</code></td>
-      <td rowspan="${n}">${s.parser_name||'<span class="text-muted">无</span>'}</td>`;
-    let statusBadges = `<span class="badge bg-${s.enabled?'success':'secondary'}">${s.enabled?'运行中':'已停用'}</span>`;
+      <td rowspan="${n}">${s.parser_name||'<span class="text-muted">'+t("common.none")+'</span>'}</td>`;
+    let statusBadges = `<span class="badge bg-${s.enabled?'success':'secondary'}">${s.enabled?t("common.running"):t("common.stopped")}</span>`;
     if (sc.length === 0) {
       html += `<tr>${srcCells}
-        <td colspan="2" class="text-muted">无绑定</td>
+        <td colspan="2" class="text-muted">${t("src.no_binding")}</td>
         <td rowspan="1">${statusBadges}</td>
         <td rowspan="1" class="text-nowrap">
           <button class="btn btn-sm btn-outline-secondary" onclick="editSource(${s.id})"><i class="bi bi-pencil"></i></button>
-          <button class="btn btn-sm btn-outline-info" onclick="exportItem('source',${s.id})" title="导出"><i class="bi bi-download"></i></button>
+          <button class="btn btn-sm btn-outline-info" onclick="exportItem('source',${s.id})" title="${t("common.export")}"><i class="bi bi-download"></i></button>
           <button class="btn btn-sm btn-outline-danger" onclick="deleteSource(${s.id})"><i class="bi bi-trash"></i></button>
         </td></tr>`;
     } else {
@@ -162,10 +162,10 @@ function renderSources() {
       sc.forEach((b, i)=>{
         let ch = CHANNELS.find(y=>y.id==b.channel_id);
         let chName = ch ? ch.name : '?';
-        let condText = b.condition_expr || '<span class="text-muted">(无条件)</span>';
+        let condText = b.condition_expr || '<span class="text-muted">'+t("src.no_condition")+'</span>';
         let extras = '';
-        if (b.dedup_key_expr) extras += ' <span class="badge bg-info" title="去重窗口: '+b.dedup_window+'s">去重</span>';
-        if (b.urgent) extras += ' <span class="badge bg-warning text-dark" title="紧急通道：DND 时段也推送">紧急</span>';
+        if (b.dedup_key_expr) extras += ' <span class="badge bg-info" title="'+t("src.dedup_window_title")+b.dedup_window+'s">'+t("src.dedup_badge")+'</span>';
+        if (b.urgent) extras += ' <span class="badge bg-warning text-dark" title="'+t("src.urgent_title")+'">'+t("src.urgent_badge")+'</span>';
         let row = '';
         if (i === 0) {
           row = `<tr>${srcCells}
@@ -174,7 +174,7 @@ function renderSources() {
             <td rowspan="${n}">${statusBadges}</td>
             <td rowspan="${n}" class="text-nowrap">
               <button class="btn btn-sm btn-outline-secondary" onclick="editSource(${s.id})"><i class="bi bi-pencil"></i></button>
-              <button class="btn btn-sm btn-outline-info" onclick="exportItem('source',${s.id})" title="导出"><i class="bi bi-download"></i></button>
+              <button class="btn btn-sm btn-outline-info" onclick="exportItem('source',${s.id})" title="${t("common.export")}"><i class="bi bi-download"></i></button>
               <button class="btn btn-sm btn-outline-danger" onclick="deleteSource(${s.id})"><i class="bi bi-trash"></i></button>
             </td></tr>`;
         } else {
@@ -187,7 +187,7 @@ function renderSources() {
     }
   });
   html += '</tbody></table></div>';
-  if(!data.length) html='<div class="text-muted p-3">暂无数据源</div>';
+  if(!data.length) html='<div class="text-muted p-3">'+t("src.no_sources")+'</div>';
   document.getElementById('sources-list').innerHTML = html;
 }
 function editSource(id) {
@@ -209,7 +209,7 @@ function editSource(id) {
   new bootstrap.Modal(document.getElementById('sourceModal')).show();
 }
 function deleteSource(id) {
-  if(!confirm('确定删除此数据源？')) return;
+  if(!confirm(t("src.confirm_delete"))) return;
   fetch('/api/sources/'+id,{method:'DELETE'}).then(()=>loadSources());
 }
 function saveSource() {
@@ -219,7 +219,7 @@ function saveSource() {
     parser_id: document.getElementById('src-parser').value || null,
     enabled: document.getElementById('src-enabled').checked ? 1 : 0
   };
-  if(!data.name||!data.port) return alert('请填写名称和端口');
+  if(!data.name||!data.port) return alert(t("src.fill_name_port"));
   let method, url;
   if(editId) { method='PUT'; url='/api/sources/'+editId; }
   else { method='POST'; url='/api/sources'; }
@@ -258,12 +258,12 @@ function addBindingRow(data) {
   mainRow.className = 'row g-2 align-items-end';
   mainRow.innerHTML = `<div class="col-md-3"><select class="form-select form-select-sm ch-sel">${chOpts}</select></div>
     <div class="col-md-3"><select class="form-select form-select-sm tpl-sel">${tOpts}</select></div>
-    <div class="col-md-2"><input class="form-control form-control-sm cond" placeholder="条件表达式" value="${data.condition_expr||''}" title="留空=无条件。示例: event == 'library.new'"></div>
-    <div class="col-md-1"><input class="form-control form-control-sm pri" type="number" placeholder="优先级" value="${data.priority||0}"></div>
-    <div class="col-md-1 text-center"><div class="form-check d-inline-block mt-1"><input class="form-check-input urgent-chk" type="checkbox" ${urgentChecked} title="紧急：DND 时段也推"><label class="form-check-label"><small>🔥</small></label></div></div>
+    <div class="col-md-2"><input class="form-control form-control-sm cond" placeholder="${t("src.cond_placeholder")}" value="${data.condition_expr||''}" title="${t("src.cond_title")}"></div>
+    <div class="col-md-1"><input class="form-control form-control-sm pri" type="number" placeholder="${t("src.pri_placeholder")}" value="${data.priority||0}"></div>
+    <div class="col-md-1 text-center"><div class="form-check d-inline-block mt-1"><input class="form-check-input urgent-chk" type="checkbox" ${urgentChecked} title="${t("src.urgent_dnd_title")}"><label class="form-check-label"><small>🔥</small></label></div></div>
     <div class="col-md-2">
       <div class="d-flex gap-1">
-        <button class="btn btn-sm btn-outline-info flex-grow-1" onclick="toggleDedup(this)" title="配置去重">${hasDedup?'⏱ '+dedupKey:'⏱ 去重'}</button>
+        <button class="btn btn-sm btn-outline-info flex-grow-1" onclick="toggleDedup(this)" title="${t("src.dedup_config_title")}">${hasDedup?'⏱ '+dedupKey:t("src.dedup_btn")}</button>
         <button class="btn btn-sm btn-outline-danger" onclick="this.closest('.binding-group').remove()">&times;</button>
       </div>
     </div>`;
@@ -274,14 +274,14 @@ function addBindingRow(data) {
   subRow.style.display = hasDedup ? 'flex' : 'none';
   subRow.innerHTML = `<div class="offset-md-6 col-md-3">
       <div class="d-flex align-items-center gap-2">
-        <span class="text-nowrap small">去重键</span>
-        <input class="form-control form-control-sm dedup-key" placeholder="event" value="${dedupKey}" title="可用 + 连接多个变量，全部符合时视为重复，如 event+Item.Type。留空=不去重">
+        <span class="text-nowrap small">${t("src.dedup_key_label")}</span>
+        <input class="form-control form-control-sm dedup-key" placeholder="${t("src.dedup_key_placeholder")}" value="${dedupKey}" title="${t("src.dedup_key_title")}">
       </div>
     </div>
     <div class="col-md-3">
       <div class="d-flex align-items-center gap-2">
-        <span class="text-nowrap small">窗口时间(秒)</span>
-        <input class="form-control form-control-sm dedup-window" type="number" value="${dedupWin}" title="窗口时间内，重复请求不记录不推送。例：3600秒=1小时">
+        <span class="text-nowrap small">${t("src.dedup_window_label")}</span>
+        <input class="form-control form-control-sm dedup-window" type="number" value="${dedupWin}" title="${t("src.dedup_window_title")}">
       </div>
     </div>`;
   wrapper.appendChild(subRow);
@@ -326,12 +326,12 @@ function refreshSamples() {
         <div class="form-check">
           <input class="form-check-input sample-radio" type="radio" name="sampleSel" value="${i}" ${checked} id="sample-${i}">
           <label class="form-check-label w-100" for="sample-${i}">
-            <small class="text-muted">样本 #${i+1}</small>
+            <small class="text-muted">${t("src.sample_prefix")}${i+1}</small>
             <pre class="mb-0 small">${s.body.replace(/</g,'&lt;')}</pre>
           </label>
         </div></div></div>`;
     });
-    document.getElementById('samples-list').innerHTML = html||'<span class="text-muted">暂无样本数据</span>';
+    document.getElementById('samples-list').innerHTML = html||'<span class="text-muted">'+t("src.no_samples")+'</span>';
   });
 }
 function getActiveSample() {
@@ -342,7 +342,7 @@ function getActiveSample() {
 function showAvailKeys() {
   let parserSel = document.getElementById('src-parser');
   let pid = parserSel.value;
-  if (!pid) return alert('请先选择解析器');
+  if (!pid) return alert(t("src.select_parser_first"));
   fetch('/api/parsers/'+pid+'/content').then(r=>r.json()).then(res=>{
     let panel = document.getElementById('avail-keys-panel');
     let list = document.getElementById('avail-keys-list');
@@ -357,13 +357,13 @@ function showAvailKeys() {
       }
       // 去重
       keys = [...new Set(keys)];
-      count.textContent = keys.length + ' 个变量（点击插入到条件表达式）';
+      count.textContent = keys.length + t("src.keys_count_suffix");
       list.innerHTML = keys.map(k =>
         `<span class="badge bg-light text-dark border me-2 mb-2 py-2 px-3" style="cursor:pointer;font-size:0.9rem;" onclick="insertVarToCondition('${k}')">${k}</span>`
       ).join('');
     } else {
       count.textContent = '';
-      list.innerHTML = '<span class="text-danger">读取解析器失败</span>';
+      list.innerHTML = '<span class="text-danger">'+t("src.parser_read_fail")+'</span>';
     }
     new bootstrap.Collapse(panel, {toggle: false}).show();
   });
@@ -375,7 +375,7 @@ document.addEventListener('focusin', function(e) {
 function insertVarToCondition(varName) {
   let groups = document.querySelectorAll('#bindings-container .binding-group');
   if (groups.length === 0) {
-    alert('请先添加通道绑定');
+    alert(t("src.add_binding_first"));
     return;
   }
   // 插入到当前激活的输入框（条件表达式或去重键）
@@ -391,12 +391,12 @@ function insertVarToCondition(varName) {
     return;
   }
   // 没有激活的输入框则提示
-  alert('请先点击要插入变量的输入框（条件表达式或去重键）');
+  alert(t("src.click_input_first"));
 }
 function testParse() {
   let sid = editId||document.getElementById('src-id').value;
   let s = getActiveSample();
-  if(!sid||!s) return alert('请先勾选一个样本');
+  if(!sid||!s) return alert(t("src.check_sample_first"));
   fetch('/api/sources/'+sid+'/test-parse',{method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify(s)})
@@ -404,68 +404,36 @@ function testParse() {
     let el = document.getElementById('parse-result');
     el.style.display = 'block';
     if(res.ok) {
-      el.innerHTML = `<div class="alert alert-success mb-0"><b>解析成功</b><pre class="mb-0 mt-1 small">${JSON.stringify(res.result,null,2).replace(/</g,'&lt;')}</pre></div>`;
+      el.innerHTML = `<div class="alert alert-success mb-0"><b>${t("src.parse_ok")}</b><pre class="mb-0 mt-1 small">${JSON.stringify(res.result,null,2).replace(/</g,'&lt;')}</pre></div>`;
     } else {
-      el.innerHTML = `<div class="alert alert-danger mb-0"><b>解析失败</b><pre class="mb-0 mt-1 small">${res.error.replace(/</g,'&lt;')}</pre></div>`;
+      el.innerHTML = `<div class="alert alert-danger mb-0"><b>${t("src.parse_fail")}</b><pre class="mb-0 mt-1 small">${res.error.replace(/</g,'&lt;')}</pre></div>`;
     }
   });
 }
 function testPush() {
   let sid = editId||document.getElementById('src-id').value;
   let s = getActiveSample();
-  if(!sid||!s) return alert('请先勾选一个样本');
+  if(!sid||!s) return alert(t("src.check_sample_first"));
   fetch('/api/sources/'+sid+'/test-push',{method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify(s)})
   .then(r=>r.json()).then(res=>{
-    alert(res.ok?'推送成功':'推送失败，请查看日志');
+    alert(res.ok?t("src.push_ok"):t("src.push_fail"));
   });
 }
 function copyAIPrompt() {
   let s = getActiveSample();
-  if (!s) return alert('请先勾选一个样本');
+  if (!s) return alert(t("src.check_sample_first"));
   let parserName = document.getElementById('src-parser');
-  let parserLabel = parserName.options[parserName.selectedIndex]?.text || '未选择';
+  let parserLabel = parserName.options[parserName.selectedIndex]?.text || t("src.not_selected");
   let sampleBody = s.body;
   let rawHeaders = s.headers ? JSON.stringify(s.headers, null, 2) : '{}';
   let rawQuery = s.query_params ? JSON.stringify(s.query_params, null, 2) : '{}';
-  let prompt = `你是一个 Python 脚本生成器。请为下面的数据源编写一个解析器脚本。
-
-## 要求
-
-- 文件名：\`parsers/<数据源名称>.py\`（全小写，下划线分隔）
-- 必须包含一个 \`parse(raw_body: bytes, headers: dict, query_params: dict) -> dict\` 函数
-- 返回 dict 要求：
-  - 分析样本数据，挑选所有有意义的字段，为每个字段定义一个简洁直观的变量名（如 \`name\`、\`event\`、\`media_type\`、\`year\`、\`overview\`、\`server_url\` 等）
-  - 在解析器里用明确的赋值语句从 JSON 中提取每个字段（如 \`event = data["Event"]\`、\`name = data["Item"]["Name"]\`）
-  - 将所有变量放入返回 dict，key 即变量名，value 全部 \`str(v)\`
-  - 同时返回 \`title\`（从变量中挑一个最合适的作为标题）
-  - **不要做自动展平**，要明确列出每个字段的来源路径和变量名
-  - **不要返回 \`content\` 字段**，模板引擎会直接用单个变量，不需要预拼好的内容
-
-## 当前数据源
-
-- 名称：${parserLabel}
-
-## 样本数据（原始请求体）
-
-\`\`\`json
-${sampleBody}
-\`\`\`
-
-## 请求头
-
-\`\`\`json
-${rawHeaders}
-\`\`\`
-
-## 查询参数
-
-\`\`\`json
-${rawQuery}
-\`\`\`
-
-请参考上面的样本数据，输出完整的 Python 解析器脚本代码（仅代码，无需额外说明）。`;
+  let prompt = t("src.ai_prompt")
+    .replace("{parserLabel}", parserLabel)
+    .replace("{sampleBody}", sampleBody)
+    .replace("{rawHeaders}", rawHeaders)
+    .replace("{rawQuery}", rawQuery);
   _copyToClipboard(prompt);
 }
 function _copyToClipboard(text) {
@@ -481,13 +449,13 @@ function showManualCopyModal(text) {
   div.className = 'modal fade';
   div.tabIndex = -1;
   div.innerHTML = '<div class="modal-dialog modal-lg"><div class="modal-content">' +
-    '<div class="modal-header"><h5 class="modal-title">复制提示词</h5>' +
+    '<div class="modal-header"><h5 class="modal-title">' + t("src.copy_prompt_title") + '</h5>' +
     '<button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>' +
-    '<div class="modal-body"><p class="text-muted small">自动复制失败，请手动选中下方文本复制（Ctrl+C / ⌘C）：</p>' +
+    '<div class="modal-body"><p class="text-muted small">' + t("src.copy_prompt_fail") + '</p>' +
     '<textarea class="form-control" style="height:300px;font-size:12px;font-family:monospace;" readonly>' +
     text.replace(/</g,'&lt;').replace(/>/g,'&gt;') +
     '</textarea></div>' +
-    '<div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">关闭</button></div></div></div>';
+    '<div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">' + t("common.close") + '</button></div></div></div>';
   document.body.appendChild(div);
   let modal = new bootstrap.Modal(div);
   modal.show();

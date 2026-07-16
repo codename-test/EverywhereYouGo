@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="page-header d-flex justify-content-between align-items-center mb-3">
-    <h2><i class="bi bi-file-earmark-code"></i> 解析器管理</h2>
+    <h2><i class="bi bi-file-earmark-code"></i> {{ _("parser.title") }}</h2>
     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#parserModal">
-      <i class="bi bi-upload"></i> 上传解析器
+      <i class="bi bi-upload"></i> {{ _("parser.upload") }}
     </button>
 </div>
 
@@ -11,29 +11,29 @@
 
 <div class="modal fade" id="parserModal" tabindex="-1">
   <div class="modal-dialog"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title">上传解析器</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-header"><h5 class="modal-title">{{ _("parser.upload") }}</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
-      <div class="mb-3"><label class="form-label">名称</label><input class="form-control" id="p-name"></div>
-      <div class="mb-3"><label class="form-label">描述</label><input class="form-control" id="p-desc"></div>
-      <div class="mb-3"><label class="form-label">.py 文件</label><input class="form-control" type="file" id="p-file" accept=".py"></div>
+      <div class="mb-3"><label class="form-label">{{ _("parser.name") }}</label><input class="form-control" id="p-name"></div>
+      <div class="mb-3"><label class="form-label">{{ _("parser.desc") }}</label><input class="form-control" id="p-desc"></div>
+      <div class="mb-3"><label class="form-label">{{ _("parser.file") }}</label><input class="form-control" type="file" id="p-file" accept=".py"></div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-      <button class="btn btn-primary" onclick="uploadParser()">上传</button>
+      <button class="btn btn-secondary" data-bs-dismiss="modal">{{ _("common.cancel") }}</button>
+      <button class="btn btn-primary" onclick="uploadParser()">{{ _("common.upload") }}</button>
     </div>
   </div></div>
 </div>
 
 <div class="modal fade" id="parserViewModal" tabindex="-1">
   <div class="modal-dialog modal-lg"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title" id="pv-title">查看解析器</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-header"><h5 class="modal-title" id="pv-title">{{ _("parser.view") }}</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
       <textarea id="pv-content" class="form-control font-monospace" rows="20" style="font-size:0.85rem;"></textarea>
     </div>
     <div class="modal-footer">
-      <span id="pv-save-msg" class="text-success me-auto" style="display:none;"><i class="bi bi-check-circle"></i> 已保存</span>
-      <button class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-      <button class="btn btn-primary" onclick="saveParserContent()"><i class="bi bi-save"></i> 保存</button>
+      <span id="pv-save-msg" class="text-success me-auto" style="display:none;"><i class="bi bi-check-circle"></i> {{ _("parser.file_saved") }}</span>
+      <button class="btn btn-secondary" data-bs-dismiss="modal">{{ _("common.close") }}</button>
+      <button class="btn btn-primary" onclick="saveParserContent()"><i class="bi bi-save"></i> {{ _("common.save") }}</button>
     </div>
   </div></div>
 </div>
@@ -49,22 +49,22 @@ function loadParsers() {
     data.forEach(p=>{
       html += `<div class="card mb-2"><div class="card-body py-2 d-flex justify-content-between align-items-center">
         <div><strong>${p.name}</strong> <code>${p.filename}</code>
-          ${p.exists?'<span class="badge bg-success ms-1">文件存在</span>':'<span class="badge bg-danger ms-1">文件缺失</span>'}
+          ${p.exists?'<span class="badge bg-success ms-1">'+t("parser.file_exists")+'</span>':'<span class="badge bg-danger ms-1">'+t("parser.file_missing")+'</span>'}
           <small class="text-muted ms-2">${p.description||''}</small></div>
         <div>
           <button class="btn btn-sm btn-outline-secondary" onclick="viewParser(${p.id})"><i class="bi bi-eye"></i></button>
-          <button class="btn btn-sm btn-outline-info" onclick="window.open('/api/export/parser/'+${p.id}+'?t='+Date.now(),'_blank')" title="下载 .py"><i class="bi bi-download"></i></button>
+          <button class="btn btn-sm btn-outline-info" onclick="window.open('/api/export/parser/'+${p.id}+'?t='+Date.now(),'_blank')" title="${t("parser.download_py")}"><i class="bi bi-download"></i></button>
           <button class="btn btn-sm btn-outline-danger" onclick="deleteParser(${p.id})"><i class="bi bi-trash"></i></button>
         </div></div></div>`;
     });
-    document.getElementById('parsers-list').innerHTML = html||'<div class="text-muted">暂无解析器</div>';
+    document.getElementById('parsers-list').innerHTML = html||'<div class="text-muted">'+t("parser.no_parsers")+'</div>';
   });
 }
 function uploadParser() {
   let name = document.getElementById('p-name').value;
   let desc = document.getElementById('p-desc').value;
   let file = document.getElementById('p-file').files[0];
-  if(!name||!file) return alert('请填写名称并选择文件');
+  if(!name||!file) return alert(t("parser.fill_name_file"));
   let fd = new FormData();
   fd.append('name',name); fd.append('description',desc); fd.append('file',file);
   fetch('/api/parsers',{method:'POST',body:fd}).then(r=>r.json()).then(res=>{
@@ -98,7 +98,7 @@ function saveParserContent() {
   });
 }
 function deleteParser(id) {
-  if(!confirm('确定删除此解析器？文件也会被删除。')) return;
+  if(!confirm(t("parser.confirm_delete"))) return;
   fetch('/api/parsers/'+id,{method:'DELETE'}).then(()=>loadParsers());
 }
 loadParsers();

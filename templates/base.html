@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="{{ lang }}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -16,33 +16,55 @@ body { padding-top: 60px; background: #f5f7fa; }
 .main { margin-left: 200px; padding: 24px; }
 .card { border: none; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 pre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; font-size: 13px; max-height: 400px; overflow: auto; }
+.lang-switch { font-size: 0.85rem; }
+.lang-switch .dropdown-item.active { font-weight: bold; }
 </style>
 </head>
 <body>
 <nav class="navbar navbar-dark bg-dark fixed-top">
   <div class="container-fluid">
     <span class="navbar-brand mb-0 h1"><i class="bi bi-send"></i> EverywhereYouGo <small class="text-muted">EGo</small></span>
-    {% if auth_enabled %}
-    <a href="/logout" class="btn btn-outline-light btn-sm"><i class="bi bi-box-arrow-right"></i> 登出</a>
-    {% endif %}
+    <div class="d-flex align-items-center gap-2">
+      <div class="dropdown lang-switch">
+        <button class="btn btn-outline-light btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+          <i class="bi bi-globe2"></i> {{ '中文' if lang == 'zh' else 'EN' }}
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item {{ 'active' if lang == 'zh' }}" href="#" onclick="switchLang('zh')">中文</a></li>
+          <li><a class="dropdown-item {{ 'active' if lang == 'en' }}" href="#" onclick="switchLang('en')">English</a></li>
+        </ul>
+      </div>
+      {% if auth_enabled %}
+      <a href="/logout" class="btn btn-outline-light btn-sm"><i class="bi bi-box-arrow-right"></i> {{ _("nav.logout") }}</a>
+      {% endif %}
+    </div>
   </div>
 </nav>
 <div class="sidebar">
   <ul class="nav flex-column pt-3">
-    <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'dashboard' }}" href="/"><i class="bi bi-speedometer2"></i>仪表盘</a></li>
-    <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'sources' }}" href="/sources"><i class="bi bi-inbox"></i>数据源</a></li>
-    <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'parsers' }}" href="/parsers"><i class="bi bi-code-slash"></i>解析器</a></li>
-    <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'channels' }}" href="/channels"><i class="bi bi-send-check"></i>推送通道</a></li>
-    <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'templates' }}" href="/templates"><i class="bi bi-file-text"></i>推送模板</a></li>
-    <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'messages' }}" href="/messages"><i class="bi bi-chat-dots"></i>消息记录</a></li>
-    <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'logs' }}" href="/logs"><i class="bi bi-journal"></i>系统日志</a></li>
-    <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'settings' }}" href="/settings"><i class="bi bi-gear"></i>系统设置</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'dashboard' }}" href="/"><i class="bi bi-speedometer2"></i>{{ _("nav.dashboard") }}</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'sources' }}" href="/sources"><i class="bi bi-inbox"></i>{{ _("nav.sources") }}</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'parsers' }}" href="/parsers"><i class="bi bi-code-slash"></i>{{ _("nav.parsers") }}</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'channels' }}" href="/channels"><i class="bi bi-send-check"></i>{{ _("nav.channels") }}</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'templates' }}" href="/templates"><i class="bi bi-file-text"></i>{{ _("nav.templates") }}</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'messages' }}" href="/messages"><i class="bi bi-chat-dots"></i>{{ _("nav.messages") }}</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'logs' }}" href="/logs"><i class="bi bi-journal"></i>{{ _("nav.logs") }}</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'settings' }}" href="/settings"><i class="bi bi-gear"></i>{{ _("nav.settings") }}</a></li>
   </ul>
 </div>
 <div class="main">
 {% block content %}{% endblock %}
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// i18n translations for JavaScript
+var __i18n__ = {{ js_i18n|tojson }};
+function t(key) { return __i18n__[key] || key; }
+function switchLang(lang) {
+  fetch('/api/lang', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({lang:lang})})
+    .then(function(){ location.reload(); });
+}
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

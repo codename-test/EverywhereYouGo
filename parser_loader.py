@@ -15,6 +15,15 @@ import log
 PARSERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "parsers")
 
 
+def _t(key, fallback):
+    """翻译辅助：有 Flask 上下文时用 i18n，否则返回 fallback。"""
+    try:
+        import i18n
+        return i18n._(key)
+    except Exception:
+        return fallback
+
+
 def _module_name(filename: str) -> str:
     """parser_emby / parser_xxx"""
     name = filename.replace(".py", "")
@@ -80,7 +89,7 @@ def run_parser(filename: str, raw_body: bytes, headers: dict, query_params: dict
 
     # 保底：至少有一对 KV
     if not result:
-        result = {"data": "空消息"}
+        result = {"data": _t("parser.empty_msg", "空消息")}
     
     # 自动生成 title：找 Name/title/Subject/Event 等常见字段，否则用第一个值
     if "title" not in result:
@@ -97,7 +106,7 @@ def run_parser(filename: str, raw_body: bytes, headers: dict, query_params: dict
         if title_key:
             result["title"] = result[title_key]
         else:
-            first_value = next((v for v in result.values() if v), "未命名")
+            first_value = next((v for v in result.values() if v), _t("parser.untitled", "未命名"))
             result["title"] = first_value
     
     return result

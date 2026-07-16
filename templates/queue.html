@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h2><i class="bi bi-inbox"></i> 消息队列</h2>
+  <h2><i class="bi bi-inbox"></i> {{ _("msg.title") }}</h2>
   <button class="btn btn-primary" onclick="flushQueue()">
-    <i class="bi bi-send"></i> 推送全部待发消息
+    <i class="bi bi-send"></i> {{ _("msg.flush_all") }}
   </button>
 </div>
 
@@ -15,11 +15,11 @@
       <thead>
         <tr>
           <th>#</th>
-          <th>来源</th>
-          <th>消息预览</th>
-          <th>状态</th>
-          <th>创建时间</th>
-          <th>操作</th>
+          <th>{{ _("msg.col_source") }}</th>
+          <th>{{ _("msg.col_preview") }}</th>
+          <th>{{ _("msg.col_status") }}</th>
+          <th>{{ _("msg.col_created") }}</th>
+          <th>{{ _("msg.col_action") }}</th>
         </tr>
       </thead>
       <tbody id="queueTable"></tbody>
@@ -36,15 +36,15 @@ function loadQueue() {
       // stats
       const s = data.stats;
       document.getElementById('queueStats').innerHTML = `
-        <div class="col-md-3"><div class="card text-center"><div class="card-body py-2"><small class="text-muted">总计</small><h5 class="mb-0">${s.total}</h5></div></div></div>
-        <div class="col-md-3"><div class="card text-center"><div class="card-body py-2"><small class="text-muted">待发送</small><h5 class="mb-0 text-warning">${s.pending}</h5></div></div></div>
-        <div class="col-md-3"><div class="card text-center"><div class="card-body py-2"><small class="text-muted">已发送</small><h5 class="mb-0 text-success">${s.sent}</h5></div></div></div>
-        <div class="col-md-3"><div class="card text-center"><div class="card-body py-2"><small class="text-muted">失败</small><h5 class="mb-0 text-danger">${s.failed}</h5></div></div></div>
+        <div class="col-md-3"><div class="card text-center"><div class="card-body py-2"><small class="text-muted">${t("msg.stat_total")}</small><h5 class="mb-0">${s.total}</h5></div></div></div>
+        <div class="col-md-3"><div class="card text-center"><div class="card-body py-2"><small class="text-muted">${t("msg.stat_pending")}</small><h5 class="mb-0 text-warning">${s.pending}</h5></div></div></div>
+        <div class="col-md-3"><div class="card text-center"><div class="card-body py-2"><small class="text-muted">${t("msg.stat_sent")}</small><h5 class="mb-0 text-success">${s.sent}</h5></div></div></div>
+        <div class="col-md-3"><div class="card text-center"><div class="card-body py-2"><small class="text-muted">${t("msg.stat_failed")}</small><h5 class="mb-0 text-danger">${s.failed}</h5></div></div></div>
       `;
 
       const tbody = document.getElementById('queueTable');
       if (data.messages.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">暂无消息</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">' + t("msg.empty") + '</td></tr>';
         return;
       }
 
@@ -57,8 +57,8 @@ function loadQueue() {
 
         const badge = m.status === 'sent' ? 'bg-success' :
                       m.status === 'failed' ? 'bg-danger' : 'bg-warning text-dark';
-        const stext = m.status === 'sent' ? '已发送' :
-                      m.status === 'failed' ? '失败' : '待推送';
+        const stext = m.status === 'sent' ? t("msg.status_sent") :
+                      m.status === 'failed' ? t("msg.status_failed") : t("msg.status_pending");
 
         return `<tr>
           <td>${m.id}</td>
@@ -76,7 +76,7 @@ function flushQueue() {
   fetch('/api/queue/flush', {method:'POST'})
     .then(r => r.json())
     .then(d => {
-      alert('已推送 ' + d.count + ' 条消息');
+      alert(t("msg.flushed_alert") + d.count + t("msg.flushed_unit"));
       setTimeout(loadQueue, 1000);
     });
 }
