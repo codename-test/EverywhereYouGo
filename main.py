@@ -11,6 +11,7 @@ import signal
 import threading
 import time
 import logging
+import subprocess
 
 import log
 import db
@@ -68,6 +69,10 @@ def dnd_queue_checker():
 
 def init_ego():
     """初始化 EGo 核心（数据库、SourceManager、后台线程），返回 mgr。"""
+    # 0. 生成 SSL 证书（如果不存在）
+    cert_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gen_cert.py")
+    if os.path.isfile(cert_script):
+        subprocess.run([sys.executable, cert_script], capture_output=True)
     # 1. 初始化数据库
     log.logger.info("Initializing database...")
     db.init_db()
