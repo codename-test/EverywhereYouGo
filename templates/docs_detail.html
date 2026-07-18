@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="mb-0">
+    <a href="/docs" class="text-decoration-none text-muted"><i class="bi bi-book-half"></i></a>
+    {% if doc_type == 'parser' %}
+      <i class="bi bi-code-slash text-primary"></i> {{ _("docs.parser_title") }}
+    {% elif doc_type == 'channel' %}
+      <i class="bi bi-send-check text-success"></i> {{ _("docs.channel_title") }}
+    {% elif doc_type == 'template' %}
+      <i class="bi bi-file-text text-warning"></i> {{ _("docs.template_title") }}
+    {% endif %}
+  </h1>
+  <a href="/docs" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> {{ _("docs.back") }}</a>
+</div>
+
+{% if doc_type == 'channel' %}
+<!-- ==================== Channel Plugin SDK (AI Prompt) ==================== -->
+<div class="card mb-4">
+  <div class="card-header bg-success bg-opacity-10 d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-robot"></i> {{ _("docs.channel_ai_title") }}</span>
+    <button class="btn btn-sm btn-outline-success" onclick="copyPrompt('channelPrompt')">
+      <i class="bi bi-clipboard"></i> {{ _("docs.copy_prompt") }}
+    </button>
+  </div>
+  <div class="card-body">
+    <p class="text-muted mb-3">{{ _("docs.channel_ai_desc") }}</p>
+    <div class="code-wrapper">
+      <pre id="channelPrompt" style="max-height:none;white-space:pre-wrap;font-size:13px">## EGo Channel Plugin Specification
+
+You are writing a channel plugin for the EGo (EverywhereYouGo) push notification platform.
+The plugin is a Python script that sends messages to a specific platform.
+
+### File Requirements
+- Filename: lowercase + underscores, ending with `.py`
+- Location: `channels/` directory
+- Must define a `Channel` class that inherits from `BaseChannel`
+- `BaseChannel` is injected by the loader — do NOT import it
+
+### Class Structure
+```python
+class Channel(BaseChannel):
+    CHANNEL_TYPE = "my_platform"    # Unique ID for routing
+    CHANNEL_NAME = "My Platform"    # Display name in UI
+
+    CONFIG_FIELDS = [
+        {
+            "name": "api_key",           # Config key name
+            "type": "password",          # text | password | textarea
+            "label": "API Key",          # English label
+            "label_zh": "API \u5bc6\u94a5",       # Chinese label
+            "desc": "Your API key",      # English help text
+            "desc_zh": "\u4f60\u7684 API \u5bc6\u94a5",  # Chinese help text
+            "placeholder": "sk-...",     # Input placeholder
+            "required": True,            # Whether field is required
+            "default": ""                # Default value
+        }
+    ]
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        # Read config values
+        self.api_key = config.get("api_key", "")
+
+    def send(self, title: str, content: str) -> tuple:
+        # Send message. Return (True, "") on success, (False, "error") on failure.
+        try:
+            import requests
+            resp = requests.post("https://api.example.com/send", json={
+                "key": self.api_key,
+                "title": title,
+                "body": content
+            }, timeout=15)
+            if resp.status_code == 200:
+                return True, ""
+            return False, resp.text
+        except Exception as e:
+            return False, str(e)
+
+    def test(self) -> bool:
+        # Test if config is valid. Return True/False.
+        ok, _ = self.send("EGo Test", "Channel test successful!")
+        return ok
+```
+
+### Available Modules
+- `requests` — for HTTP calls
+- `log` — use `log.logger.info()` / `log.logger.error()` for logging
+- Any Python standard library module
+
+### Best Practices
+1. Always set `timeout=15` on HTTP requests
+2. Catch all exceptions in `send()` and return `(False, str(e))`
+3. Use `log.logger` for error logging
+4. `CONFIG_FIELDS` defines the UI form — use `password` type for secrets
+5. Keep the plugin self-contained, no external dependencies beyond `requests`</pre>
+    </div>
+  </div>
+</div>
+
+<!-- Quick Reference -->
+<div class="card">
+  <div class="card-header"><i class="bi bi-list-check"></i> {{ _("docs.channel_quick_ref") }}</div>
+  <div class="card-body">
+    <div class="row">
+      <div class="col-md-6">
+        <h6>{{ _("docs.channel_methods") }}</h6>
+        <table class="table table-sm">
+          <thead><tr><th>{{ _("docs.method") }}</th><th>{{ _("docs.params") }}</th><th>{{ _("docs.returns") }}</th></tr></thead>
+          <tbody>
+            <tr><td><code>send(title, content)</code></td><td>str, str</td><td>tuple(bool, str)</td></tr>
+            <tr><td><code>test()</code></td><td>-</td><td>bool</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="col-md-6">
+        <h6>{{ _("docs.channel_field_types") }}</h6>
+        <table class="table table-sm">
+          <thead><tr><th>{{ _("docs.type") }}</th><th>{{ _("docs.usage") }}</th></tr></thead>
+          <tbody>
+            <tr><td><code>text</code></td><td>{{ _("docs.type_text") }}</td></tr>
+            <tr><td><code>password</code></td><td>{{ _("docs.type_password") }}</td></tr>
+            <tr><td><code>textarea</code></td><td>{{ _("docs.type_textarea") }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% elif doc_type == 'parser' %}
+<!-- ==================== Parser SDK ==================== -->
+<div class="card mb-4">
+  <div class="card-header bg-primary bg-opacity-10 d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-robot"></i> {{ _("docs.parser_ai_title") }}</span>
+    <button class="btn btn-sm btn-outline-primary" onclick="copyPrompt('parserPrompt')">
+      <i class="bi bi-clipboard"></i> {{ _("docs.copy_prompt") }}
+    </button>
+  </div>
+  <div class="card-body">
+    <p class="text-muted mb-3">{{ _("docs.parser_ai_desc") }}</p>
+    <div class="code-wrapper">
+      <pre id="parserPrompt" style="max-height:none;white-space:pre-wrap;font-size:13px">## EGo Parser Plugin Specification
+
+You are writing a parser script for the EGo (EverywhereYouGo) push notification platform.
+The parser extracts structured data from raw HTTP request bodies.
+
+### File Requirements
+- Filename: lowercase + underscores, ending with `.py`
+- Location: `parsers/` directory
+- Must define a `parse(raw_body: bytes, headers: dict, query_params: dict) -> dict` function
+
+### Function Signature
+```python
+def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
+    """
+    Parse incoming webhook data and return a dict.
+    The returned dict keys will be used as template variables.
+    Common keys: title, content, url, author, timestamp
+    """
+    import json
+    data = json.loads(raw_body)
+    return {
+        "title": data.get("title", "Notification"),
+        "content": data.get("body", data.get("text", "")),
+        "url": data.get("url", ""),
+    }
+```
+
+### Available Modules
+- `json` — for JSON parsing
+- `xml.etree.ElementTree` — for XML parsing
+- `re` — for regex
+- `html` — for HTML entity decoding
+- `urllib.parse` — for URL parsing
+- `log` — use `log.logger.info()` / `log.logger.error()` for logging
+
+### Best Practices
+1. Always handle both JSON and form-encoded bodies when possible
+2. Return at least `title` and `content` keys
+3. Handle missing fields gracefully with defaults
+4. Use `try/except` to catch parsing errors
+5. Log raw body on error for debugging</pre>
+    </div>
+  </div>
+</div>
+
+{% elif doc_type == 'template' %}
+<!-- ==================== Template SDK ==================== -->
+<div class="card mb-4">
+  <div class="card-header bg-warning bg-opacity-10 d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-robot"></i> {{ _("docs.template_ai_title") }}</span>
+    <button class="btn btn-sm btn-outline-warning" onclick="copyPrompt('templatePrompt')">
+      <i class="bi bi-clipboard"></i> {{ _("docs.copy_prompt") }}
+    </button>
+  </div>
+  <div class="card-body">
+    <p class="text-muted mb-3">{{ _("docs.template_ai_desc") }}</p>
+    <div class="code-wrapper">
+      <pre id="templatePrompt" style="max-height:none;white-space:pre-wrap;font-size:13px">## EGo Template Specification
+
+You are writing message templates for the EGo (EverywhereYouGo) push notification platform.
+Templates format parsed data into readable messages for different channels.
+
+### Template Engines
+EGo supports two engines:
+1. **Jinja2** — Full template engine with conditions, loops, filters
+2. **Simple** — Basic variable substitution only: `{var_name}`
+
+### Available Variables
+Variables come from the parser output. Common ones:
+- `{title}` — Message title
+- `{content}` — Message body
+- `{url}` — Source URL
+- `{author}` — Content author
+- `{timestamp}` — Event time
+
+### Jinja2 Example
+```jinja2
+**{{ "{{ title }}" }}**
+
+{{ "{{ content }}" }}
+
+{{ "{% if url %}" }}
+[{{ _("docs.view_source") }}]({{ "{{ url }}" }})
+{{ "{% endif %}" }}
+
+{{ "{% if author %}" }}
+{{ _("docs.by_author") }}: {{ "{{ author }}" }}
+{{ "{% endif %}" }}
+```
+
+### Simple Example
+```
+**{title}**
+
+{content}
+
+{url}
+```
+
+### Best Practices
+1. Use Jinja2 for conditional content (some fields may be empty)
+2. Keep templates clean — avoid complex logic
+3. Test with sample data to verify output
+4. Different channels may render markdown differently</pre>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function copyPrompt(id) {
+    var el = document.getElementById(id);
+    var text = el.textContent;
+    navigator.clipboard.writeText(text).then(function() {
+        var btn = el.parentElement.querySelector('button');
+        var orig = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-check"></i> ' + t("docs.copied");
+        btn.classList.add('btn-success');
+        btn.classList.remove('btn-outline-success', 'btn-outline-primary', 'btn-outline-warning');
+        setTimeout(function() {
+            btn.innerHTML = orig;
+            btn.classList.remove('btn-success');
+        }, 2000);
+    });
+}
+</script>
+{% endblock %}

@@ -4,12 +4,33 @@
 
 import requests
 import log
-from . import BaseChannel
-
-
-class TelegramBot(BaseChannel):
+class Channel(BaseChannel):
     CHANNEL_TYPE = "telegram_bot"
     CHANNEL_NAME = "Telegram"
+    CONFIG_FIELDS = [
+    {
+        "name": "bot_token",
+        "type": "password",
+        "label": "Bot Token",
+        "label_zh": "Bot Token",
+        "desc": "Telegram Bot token from @BotFather",
+        "desc_zh": "从 @BotFather 获取的 Bot Token",
+        "placeholder": "123456:ABC-DEF...",
+        "required": True,
+        "default": ""
+    },
+    {
+        "name": "chat_id",
+        "type": "text",
+        "label": "Chat ID",
+        "label_zh": "Chat ID",
+        "desc": "User ID or Group ID (e.g. @channelname)",
+        "desc_zh": "用户 ID 或群组 ID（如 @channelname）",
+        "placeholder": "@channelname or -100xxxx",
+        "required": True,
+        "default": ""
+    }
+]
 
     def __init__(self, config: dict):
         super().__init__(config)

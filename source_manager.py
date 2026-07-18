@@ -19,7 +19,7 @@ import db
 import parser_loader
 import router
 import renderer
-from channels import create_channel
+from channel_loader import create_channel
 
 # 存储样本数据：{source_id: [{"body":..., "headers":..., "query":...}, ...]}
 _sample_store = {}

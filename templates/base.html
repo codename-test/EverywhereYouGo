@@ -20,7 +20,7 @@ pre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; fo
 .lang-switch .dropdown-item.active { font-weight: bold; }
 </style>
 </head>
-<body>
+<body class="lang-{{ lang }}">
 <nav class="navbar navbar-dark bg-dark fixed-top">
   <div class="container-fluid">
     <span class="navbar-brand mb-0 h1"><i class="bi bi-send"></i> EverywhereYouGo <small class="text-muted">EGo</small></span>
@@ -50,6 +50,7 @@ pre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; fo
     <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'messages' }}" href="/messages"><i class="bi bi-chat-dots"></i>{{ _("nav.messages") }}</a></li>
     <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'logs' }}" href="/logs"><i class="bi bi-journal"></i>{{ _("nav.logs") }}</a></li>
     <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'settings' }}" href="/settings"><i class="bi bi-gear"></i>{{ _("nav.settings") }}</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if active_page == 'docs' }}" href="/docs"><i class="bi bi-book-half"></i>{{ _("nav.docs") }}</a></li>
   </ul>
 </div>
 <div class="main">

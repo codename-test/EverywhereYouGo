@@ -4,12 +4,22 @@
 
 import requests
 import log
-from . import BaseChannel
-
-
-class DingTalk(BaseChannel):
+class Channel(BaseChannel):
     CHANNEL_TYPE = "dingtalk"
     CHANNEL_NAME = "钉钉"
+    CONFIG_FIELDS = [
+    {
+        "name": "webhook_url",
+        "type": "text",
+        "label": "Webhook URL",
+        "label_zh": "Webhook 地址",
+        "desc": "DingTalk robot webhook URL",
+        "desc_zh": "钉钉机器人的 Webhook 地址",
+        "placeholder": "https://oapi.dingtalk.com/robot/send?access_token=xxx",
+        "required": True,
+        "default": ""
+    }
+]
 
     def __init__(self, config: dict):
         super().__init__(config)

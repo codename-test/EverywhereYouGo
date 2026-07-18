@@ -4,12 +4,33 @@
 
 import requests
 import log
-from . import BaseChannel
-
-
-class Bark(BaseChannel):
+class Channel(BaseChannel):
     CHANNEL_TYPE = "bark"
     CHANNEL_NAME = "Bark"
+    CONFIG_FIELDS = [
+    {
+        "name": "server_url",
+        "type": "text",
+        "label": "Server URL",
+        "label_zh": "服务器地址",
+        "desc": "Bark server address",
+        "desc_zh": "Bark 服务器地址，不填则用官方公共服务",
+        "placeholder": "https://api.day.app",
+        "required": False,
+        "default": "https://api.day.app"
+    },
+    {
+        "name": "device_key",
+        "type": "text",
+        "label": "Device Key",
+        "label_zh": "设备密钥",
+        "desc": "Your Bark device key",
+        "desc_zh": "Bark App 中复制的设备密钥",
+        "placeholder": "",
+        "required": True,
+        "default": ""
+    }
+]
 
     def __init__(self, config: dict):
         super().__init__(config)

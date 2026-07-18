@@ -4,12 +4,22 @@
 
 import requests
 import log
-from . import BaseChannel
-
-
-class Feishu(BaseChannel):
+class Channel(BaseChannel):
     CHANNEL_TYPE = "feishu"
     CHANNEL_NAME = "飞书"
+    CONFIG_FIELDS = [
+    {
+        "name": "webhook_url",
+        "type": "text",
+        "label": "Webhook URL",
+        "label_zh": "Webhook 地址",
+        "desc": "Feishu robot webhook URL",
+        "desc_zh": "飞书机器人的 Webhook 地址",
+        "placeholder": "https://open.feishu.cn/open-apis/bot/v2/hook/xxx",
+        "required": True,
+        "default": ""
+    }
+]
 
     def __init__(self, config: dict):
         super().__init__(config)

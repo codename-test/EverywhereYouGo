@@ -1,0 +1,740 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .sdk-toc { position: sticky; top: 80px; }
+  .sdk-toc .nav-link { color: #475569; padding: 4px 12px; font-size: 0.9rem; border-left: 2px solid transparent; }
+  .sdk-toc .nav-link:hover { color: #1e293b; border-left-color: #94a3b8; }
+  .sdk-toc .nav-link.active { color: #0d6efd; border-left-color: #0d6efd; font-weight: 600; }
+  .sdk-section { scroll-margin-top: 80px; }
+  .sdk-section h2 { padding-bottom: 8px; border-bottom: 2px solid #e2e8f0; margin-bottom: 16px; }
+  .sdk-section h3 { margin-top: 24px; margin-bottom: 12px; color: #334155; }
+  /* Language-aware visibility: only show current language */
+  .lang-zh, .lang-en { transition: none; }
+  body.lang-zh .lang-en { display: none !important; }
+  body.lang-en .lang-zh { display: none !important; }
+  .lang-zh { color: #1e293b; }
+  .lang-en { color: #1e293b; }
+  .code-wrapper { position: relative; }
+  .code-wrapper .btn-copy {
+    position: absolute; top: 8px; right: 8px;
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+    color: #94a3b8; font-size: 0.75rem; padding: 2px 8px; border-radius: 4px;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .code-wrapper .btn-copy:hover { background: rgba(255,255,255,0.2); color: #e2e8f0; }
+  .code-wrapper .btn-copy.copied { background: #22c55e; color: #fff; border-color: #22c55e; }
+  .config-table th { width: 30%; }
+  .badge-channel { font-family: monospace; }
+  .tip-box { background: #f0f9ff; border-left: 4px solid #0ea5e9; padding: 12px 16px; border-radius: 0 6px 6px 0; margin: 16px 0; }
+  .tip-box i { color: #0ea5e9; }
+  .warn-box { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 0 6px 6px 0; margin: 16px 0; }
+  .warn-box i { color: #f59e0b; }
+  .arch-diagram { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; text-align: center; font-family: monospace; font-size: 0.9rem; line-height: 1.8; }
+  .arch-diagram .arrow { color: #0ea5e9; font-size: 1.2rem; }
+  .arch-diagram .box { display: inline-block; background: #fff; border: 2px solid #cbd5e1; border-radius: 6px; padding: 6px 14px; margin: 2px 4px; }
+  .arch-diagram .box-highlight { border-color: #0ea5e9; background: #f0f9ff; }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="mb-0"><i class="bi bi-book"></i> {{ _("sdk.page_title") }}</h1>
+  <a href="/channels" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> {{ _("sdk.back_channels") }}</a>
+</div>
+
+<div class="row">
+  <!-- Sidebar TOC -->
+  <div class="col-md-3">
+    <nav class="sdk-toc nav flex-column">
+      <a class="nav-link" href="#overview">{{ _("sdk.toc_overview") }}</a>
+      <a class="nav-link" href="#specification">{{ _("sdk.toc_spec") }}</a>
+      <a class="nav-link" href="#interface">{{ _("sdk.toc_interface") }}</a>
+      <a class="nav-link" href="#config">{{ _("sdk.toc_config") }}</a>
+      <a class="nav-link" href="#example">{{ _("sdk.toc_example") }}</a>
+      <a class="nav-link" href="#quickstart">{{ _("sdk.toc_quickstart") }}</a>
+      <a class="nav-link" href="#tips">{{ _("sdk.toc_tips") }}</a>
+    </nav>
+  </div>
+
+  <!-- Main Content -->
+  <div class="col-md-9">
+
+    <!-- ==================== 1. Overview ==================== -->
+    <section id="overview" class="sdk-section">
+      <h2><i class="bi bi-1-circle-fill text-primary"></i> {{ _("sdk.overview_title") }}</h2>
+
+      <div class="lang-zh mb-2">
+        <p><strong>通道插件（Channel Plugin）</strong>是 EGo 推送系统的最终执行层。它负责将解析并模板化后的消息，发送到具体的目标平台（如 Bark、Telegram、邮件等）。</p>
+      </div>
+      <div class="lang-en mb-3">
+        <p>A <strong>Channel Plugin</strong> is the final delivery layer of the EGo push system. It is responsible for sending parsed and templated messages to a specific target platform (e.g., Bark, Telegram, Email, etc.).</p>
+      </div>
+
+      <h3>{{ _("sdk.overview_arch") }}</h3>
+      <div class="arch-diagram mb-3">
+        <span class="box">RSS / JSON / HTML</span>
+        <span class="arrow">&rarr;</span>
+        <span class="box">{{ _("sdk.arch_parser") }}</span>
+        <span class="arrow">&rarr;</span>
+        <span class="box">{{ _("sdk.arch_template") }}</span>
+        <span class="arrow">&rarr;</span>
+        <span class="box box-highlight">{{ _("sdk.arch_channel") }}</span>
+        <span class="arrow">&rarr;</span>
+        <span class="box">{{ _("sdk.arch_target") }}</span>
+      </div>
+
+      <div class="lang-zh mb-2">
+        <p>数据流经以下阶段：</p>
+        <ol>
+          <li><strong>数据源（Source）</strong>：提供原始数据（RSS、网页、API 等）</li>
+          <li><strong>解析器（Parser）</strong>：从原始数据中提取标题和内容</li>
+          <li><strong>模板（Template）</strong>：将提取的内容格式化为消息文本</li>
+          <li><strong>通道插件（Channel Plugin）</strong>：将消息推送到目标平台</li>
+          <li><strong>目标平台</strong>：用户最终收到通知的设备或服务</li>
+        </ol>
+      </div>
+      <div class="lang-en">
+        <p>Data flows through the following stages:</p>
+        <ol>
+          <li><strong>Source</strong>: Provides raw data (RSS, web pages, APIs, etc.)</li>
+          <li><strong>Parser</strong>: Extracts titles and content from raw data</li>
+          <li><strong>Template</strong>: Formats extracted content into message text</li>
+          <li><strong>Channel Plugin</strong>: Pushes the message to the target platform</li>
+          <li><strong>Target</strong>: The device or service where the user receives the notification</li>
+        </ol>
+      </div>
+    </section>
+
+    <hr class="my-4">
+
+    <!-- ==================== 2. Plugin Specification ==================== -->
+    <section id="specification" class="sdk-section">
+      <h2><i class="bi bi-2-circle-fill text-primary"></i> {{ _("sdk.spec_title") }}</h2>
+
+      <div class="lang-zh mb-2">
+        <p>通道插件需要遵循以下规范：</p>
+      </div>
+      <div class="lang-en mb-3">
+        <p>Channel plugins must follow these specifications:</p>
+      </div>
+
+      <table class="table table-bordered bg-white">
+        <thead class="table-light">
+          <tr>
+            <th>{{ _("sdk.spec_item") }}</th>
+            <th>{{ _("sdk.spec_requirement") }}</th>
+            <th>{{ _("sdk.spec_example") }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>{{ _("sdk.spec_location") }}</td>
+            <td><code>channels/</code> {{ _("sdk.spec_location_desc") }}</td>
+            <td><code>channels/my_channel.py</code></td>
+          </tr>
+          <tr>
+            <td>{{ _("sdk.spec_naming") }}</td>
+            <td>{{ _("sdk.spec_naming_desc") }}</td>
+            <td><code>bark.py</code>, <code>telegram_bot.py</code>, <code>email_smtp.py</code></td>
+          </tr>
+          <tr>
+            <td>{{ _("sdk.spec_class") }}</td>
+            <td>{{ _("sdk.spec_class_desc") }}</td>
+            <td><code>class Channel(BaseChannel):</code></td>
+          </tr>
+          <tr>
+            <td>{{ _("sdk.spec_inherit") }}</td>
+            <td>{{ _("sdk.spec_inherit_desc") }}</td>
+            <td><code>from channel_loader import BaseChannel</code></td>
+          </tr>
+          <tr>
+            <td><code>CHANNEL_TYPE</code></td>
+            <td>{{ _("sdk.spec_type_desc") }}</td>
+            <td><code class="badge-channel">"bark"</code></td>
+          </tr>
+          <tr>
+            <td><code>CHANNEL_NAME</code></td>
+            <td>{{ _("sdk.spec_name_desc") }}</td>
+            <td><code class="badge-channel">"Bark"</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="warn-box">
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        <strong>{{ _("sdk.spec_warn_title") }}:</strong>
+        <span class="lang-zh">{{ _("sdk.spec_warn_zh") }}</span><br>
+        <span class="lang-en">{{ _("sdk.spec_warn_en") }}</span>
+      </div>
+    </section>
+
+    <hr class="my-4">
+
+    <!-- ==================== 3. BaseChannel Interface ==================== -->
+    <section id="interface" class="sdk-section">
+      <h2><i class="bi bi-3-circle-fill text-primary"></i> {{ _("sdk.iface_title") }}</h2>
+
+      <div class="lang-zh mb-2">
+        <p>所有通道插件必须实现 <code>BaseChannel</code> 定义的接口。以下是基类的完整定义：</p>
+      </div>
+      <div class="lang-en mb-3">
+        <p>All channel plugins must implement the interface defined by <code>BaseChannel</code>. Here is the full base class definition:</p>
+      </div>
+
+      <div class="code-wrapper">
+        <button class="btn-copy" onclick="copyCode(this)"><i class="bi bi-clipboard"></i> {{ _("sdk.copy") }}</button>
+<pre><code>#!/usr/bin/python3
+# -*- coding: UTF-8 -*-
+"""Channel base class. Plugin loading is handled by channel_loader."""
+
+
+class BaseChannel:
+    CHANNEL_TYPE = "base"       # {{ _("sdk.code_unique_id") }}
+    CHANNEL_NAME = "Base"       # {{ _("sdk.code_display_name") }}
+
+    CONFIG_FIELDS = [           # {{ _("sdk.code_config_fields") }}
+        {
+            "name": "api_key",  # {{ _("sdk.code_field_name") }}
+            "type": "password", # {{ _("sdk.code_field_type") }}
+            "label": "API Key", # {{ _("sdk.code_field_label") }}
+            "label_zh": "API 密钥",
+            "desc": "Your API key",
+            "desc_zh": "你的 API 密钥",
+            "required": True,   # {{ _("sdk.code_field_required") }}
+            "default": ""
+        }
+    ]
+
+    def __init__(self, config: dict):
+        self.config = config
+
+    def send(self, title: str, content: str) -&gt; tuple:
+        """{{ _("sdk.code_send_doc") }}
+        {{ _("sdk.code_send_return") }}
+        """
+        raise NotImplementedError
+
+    def test(self) -&gt; bool:
+        """{{ _("sdk.code_test_doc") }}"""
+        raise NotImplementedError</code></pre>
+      </div>
+
+      <h3>{{ _("sdk.iface_methods") }}</h3>
+      <table class="table table-bordered bg-white">
+        <thead class="table-light">
+          <tr>
+            <th>{{ _("sdk.iface_method") }}</th>
+            <th>{{ _("sdk.iface_params") }}</th>
+            <th>{{ _("sdk.iface_return") }}</th>
+            <th>{{ _("sdk.iface_desc") }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>__init__(config)</code></td>
+            <td><code>config: dict</code></td>
+            <td>-</td>
+            <td>
+              <span class="lang-zh">初始化通道，从 config 中读取所需参数</span><br>
+              <span class="lang-en">Initialize the channel, read required parameters from config</span>
+            </td>
+          </tr>
+          <tr>
+            <td><code>send(title, content)</code></td>
+            <td><code>title: str, content: str</code></td>
+            <td><code>(bool, str)</code></td>
+            <td>
+              <span class="lang-zh">发送消息。返回 <code>(成功, 错误信息)</code>，成功时错误信息为空字符串</span><br>
+              <span class="lang-en">Send message. Returns <code>(ok, error_msg)</code>. Error is empty string on success.</span>
+            </td>
+          </tr>
+          <tr>
+            <td><code>test()</code></td>
+            <td>-</td>
+            <td><code>bool</code></td>
+            <td>
+              <span class="lang-zh">连通性测试。发送一条测试消息，返回是否成功</span><br>
+              <span class="lang-en">Connectivity test. Send a test message and return whether it succeeded.</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <hr class="my-4">
+
+    <!-- ==================== 4. Config System ==================== -->
+    <section id="config" class="sdk-section">
+      <h2><i class="bi bi-4-circle-fill text-primary"></i> {{ _("sdk.config_title") }}</h2>
+
+      <div class="lang-zh mb-2">
+        <p>配置（Config）是一个 JSON 字典，在创建通道实例时传入 <code>__init__</code>。配置存储在数据库中，可通过 WebUI 编辑。</p>
+      </div>
+      <div class="lang-en mb-3">
+        <p>The Config is a JSON dictionary passed to <code>__init__</code> when creating a channel instance. It is stored in the database and editable via the WebUI.</p>
+      </div>
+
+      <h3>{{ _("sdk.config_example_title") }}</h3>
+
+      <div class="lang-zh mb-2">
+        <p>以下是 Bark 通道的配置示例：</p>
+      </div>
+      <div class="lang-en mb-2">
+        <p>Here is a config example for the Bark channel:</p>
+      </div>
+
+      <div class="code-wrapper">
+        <button class="btn-copy" onclick="copyCode(this)"><i class="bi bi-clipboard"></i> {{ _("sdk.copy") }}</button>
+<pre><code>{
+  "server_url": "https://api.day.app",
+  "device_key": "your-device-key-here"
+}</code></pre>
+      </div>
+
+      <h3>{{ _("sdk.config_common模式") }}</h3>
+
+      <div class="lang-zh mb-2">
+        <p>不同通道类型的常见配置结构：</p>
+      </div>
+      <div class="lang-en mb-2">
+        <p>Common config structures for different channel types:</p>
+      </div>
+
+      <table class="table table-bordered bg-white config-table">
+        <thead class="table-light">
+          <tr>
+            <th>{{ _("sdk.config_type") }}</th>
+            <th>{{ _("sdk.config_fields") }}</th>
+            <th>{{ _("sdk.config_sample") }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Bark</td>
+            <td><code>server_url</code>, <code>device_key</code></td>
+            <td><code>{"server_url": "https://api.day.app", "device_key": "xxx"}</code></td>
+          </tr>
+          <tr>
+            <td>Telegram Bot</td>
+            <td><code>bot_token</code>, <code>chat_id</code></td>
+            <td><code>{"bot_token": "123:ABC", "chat_id": "-100123"}</code></td>
+          </tr>
+          <tr>
+            <td>Email (SMTP)</td>
+            <td><code>smtp_host</code>, <code>smtp_port</code>, <code>username</code>, <code>password</code>, <code>to_addr</code></td>
+            <td><code>{"smtp_host": "smtp.gmail.com", "smtp_port": 465, ...}</code></td>
+          </tr>
+          <tr>
+            <td>Webhook</td>
+            <td><code>url</code>, <code>method</code>, <code>headers</code></td>
+            <td><code>{"url": "https://...", "method": "POST", "headers": {}}</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="tip-box">
+        <i class="bi bi-info-circle-fill"></i>
+        <span class="lang-zh"><strong>提示</strong>：在 <code>__init__</code> 中使用 <code>config.get("key", "default")</code> 来提供默认值，避免缺少配置时报错。</span>
+        <span class="lang-en"><strong>Tip</strong>: Use <code>config.get("key", "default")</code> in <code>__init__</code> to provide defaults and avoid errors when config is incomplete.</span>
+      </div>
+    </section>
+
+    <hr class="my-4">
+
+    <!-- ==================== 5. Complete Example ==================== -->
+    <section id="example" class="sdk-section">
+      <h2><i class="bi bi-5-circle-fill text-primary"></i> {{ _("sdk.example_title") }}</h2>
+
+      <div class="lang-zh mb-2">
+        <p>以下是 <code>bark.py</code> 的完整实现，附带详细注释说明每个部分的作用：</p>
+      </div>
+      <div class="lang-en mb-3">
+        <p>Below is the full <code>bark.py</code> implementation with detailed comments explaining each part:</p>
+      </div>
+
+      <div class="code-wrapper">
+        <button class="btn-copy" onclick="copyCode(this)"><i class="bi bi-clipboard"></i> {{ _("sdk.copy") }}</button>
+<pre><code>#!/usr/bin/python3
+# -*- coding: UTF-8 -*-
+"""Bark iOS Push Notification Channel
+Bark iOS 推送通道插件
+"""
+
+import requests
+import log
+from channel_loader import BaseChannel
+
+
+class Channel(BaseChannel):
+    # ── Class Attributes / 类属性 ──────────────────────────────
+    # CHANNEL_TYPE: unique identifier, used in database and routing
+    # CHANNEL_TYPE: 唯一标识符，用于数据库和消息路由
+    CHANNEL_TYPE = "bark"
+
+    # CHANNEL_NAME: human-readable display name shown in WebUI
+    # CHANNEL_NAME: 在 WebUI 中显示的名称
+    CHANNEL_NAME = "Bark"
+
+    # ── Initialization / 初始化 ────────────────────────────────
+    def __init__(self, config: dict):
+        # Always call super().__init__() first
+        # 必须先调用 super().__init__()
+        super().__init__(config)
+
+        # Read config values with safe defaults
+        # 使用安全默认值读取配置
+        self.server_url = config.get("server_url", "https://api.day.app")
+        self.device_key = config.get("device_key", "")
+
+    # ── Send Message / 发送消息 ────────────────────────────────
+    def send(self, title: str, content: str) -&gt; tuple:
+        """Send a push notification via Bark API
+        通过 Bark API 发送推送通知
+
+        Returns: (success: bool, error_message: str)
+        返回: (是否成功, 错误信息)
+        """
+        # Validate required config
+        # 验证必需的配置项
+        if not self.device_key:
+            return False, "device_key is empty"
+
+        try:
+            # Make HTTP POST request to Bark API
+            # 向 Bark API 发送 HTTP POST 请求
+            resp = requests.post(
+                f"{self.server_url}/{self.device_key}",
+                json={
+                    "title": title,
+                    "body": content,
+                    "group": "EverywhereYouGo"   # Group notifications
+                },
+                timeout=15  # Reasonable timeout / 合理的超时时间
+            )
+
+            # Parse response and check success
+            # 解析响应并检查是否成功
+            body = resp.json()
+            if body.get("code") == 200:
+                return True, ""
+
+            # Extract error message from response
+            # 从响应中提取错误信息
+            errmsg = body.get("message", "unknown error")
+            log.logger.error(f"Bark send: {errmsg}")
+            return False, errmsg
+
+        except Exception as e:
+            # Catch all exceptions, log and return error
+            # 捕获所有异常，记录日志并返回错误
+            log.logger.error(f"Bark send: {e}")
+            return False, str(e)
+
+    # ── Connectivity Test / 连通性测试 ─────────────────────────
+    def test(self) -&gt; bool:
+        """Test if the Bark channel is working
+        测试 Bark 通道是否可用
+        """
+        if not self.device_key:
+            return False
+        try:
+            resp = requests.post(
+                f"{self.server_url}/{self.device_key}",
+                json={
+                    "title": "EverywhereYouGo 测试",
+                    "body": "通道测试成功！",
+                    "group": "EverywhereYouGo"
+                },
+                timeout=15
+            )
+            return resp.json().get("code") == 200
+        except Exception:
+            return False</code></pre>
+      </div>
+    </section>
+
+    <hr class="my-4">
+
+    <!-- ==================== 6. Quick Start Guide ==================== -->
+    <section id="quickstart" class="sdk-section">
+      <h2><i class="bi bi-6-circle-fill text-primary"></i> {{ _("sdk.qs_title") }}</h2>
+
+      <div class="lang-zh mb-3">
+        <p>按照以下步骤创建并使用你的自定义通道插件：</p>
+      </div>
+      <div class="lang-en mb-3">
+        <p>Follow these steps to create and use your custom channel plugin:</p>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <h5 class="card-title">
+            <span class="badge bg-primary rounded-pill me-2">1</span>
+            {{ _("sdk.qs_step1_title") }}
+          </h5>
+          <div class="lang-zh mb-1">
+            <p>编写你的 <code>Channel</code> 类，继承 <code>BaseChannel</code>，实现 <code>send()</code> 和 <code>test()</code> 方法。</p>
+          </div>
+          <div class="lang-en">
+            <p>Write your <code>Channel</code> class, inheriting from <code>BaseChannel</code>, implementing the <code>send()</code> and <code>test()</code> methods.</p>
+          </div>
+          <div class="code-wrapper">
+            <button class="btn-copy" onclick="copyCode(this)"><i class="bi bi-clipboard"></i> {{ _("sdk.copy") }}</button>
+<pre><code>import requests
+import log
+from channel_loader import BaseChannel
+
+
+class Channel(BaseChannel):
+    CHANNEL_TYPE = "my_channel"
+    CHANNEL_NAME = "My Channel"
+
+    CONFIG_FIELDS = [
+        {
+            "name": "webhook_url",
+            "type": "text",
+            "label": "Webhook URL",
+            "label_zh": "Webhook 地址",
+            "desc": "Your webhook URL",
+            "desc_zh": "你的 Webhook 地址",
+            "placeholder": "https://...",
+            "required": True,
+            "default": ""
+        }
+    ]
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.api_key = config.get("api_key", "")
+
+    def send(self, title: str, content: str) -&gt; tuple:
+        try:
+            resp = requests.post(
+                "https://api.example.com/push",
+                json={"key": self.api_key, "title": title, "body": content},
+                timeout=15
+            )
+            if resp.status_code == 200:
+                return True, ""
+            return False, f"HTTP {resp.status_code}"
+        except Exception as e:
+            return False, str(e)
+
+    def test(self) -&gt; bool:
+        ok, _ = self.send("EGo Test", "Channel test message")
+        return ok</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <h5 class="card-title">
+            <span class="badge bg-primary rounded-pill me-2">2</span>
+            {{ _("sdk.qs_step2_title") }}
+          </h5>
+          <div class="lang-zh mb-1">
+            <p>进入 <strong>通道管理（Channels）</strong> 页面，点击 <strong>"上传插件"</strong> 按钮，选择你的 <code>.py</code> 文件上传。</p>
+          </div>
+          <div class="lang-en">
+            <p>Go to the <strong>Channels</strong> page, click the <strong>"Upload Plugin"</strong> button, and select your <code>.py</code> file to upload.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <h5 class="card-title">
+            <span class="badge bg-primary rounded-pill me-2">3</span>
+            {{ _("sdk.qs_step3_title") }}
+          </h5>
+          <div class="lang-zh mb-1">
+            <p>上传成功后，点击 <strong>"新建通道"</strong>，选择你上传的插件类型，填写通道名称。</p>
+          </div>
+          <div class="lang-en">
+            <p>After upload, click <strong>"New Channel"</strong>, select your plugin type, and fill in the channel name.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <h5 class="card-title">
+            <span class="badge bg-primary rounded-pill me-2">4</span>
+            {{ _("sdk.qs_step4_title") }}
+          </h5>
+          <div class="lang-zh mb-1">
+            <p>在通道配置中填写 JSON 格式的配置信息，例如：</p>
+          </div>
+          <div class="lang-en">
+            <p>Fill in the JSON config for your channel, for example:</p>
+          </div>
+          <div class="code-wrapper">
+            <button class="btn-copy" onclick="copyCode(this)"><i class="bi bi-clipboard"></i> {{ _("sdk.copy") }}</button>
+<pre><code>{
+  "api_key": "your-api-key-here"
+}</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <h5 class="card-title">
+            <span class="badge bg-primary rounded-pill me-2">5</span>
+            {{ _("sdk.qs_step5_title") }}
+          </h5>
+          <div class="lang-zh mb-1">
+            <p>点击 <strong>"测试"</strong> 按钮验证通道是否正常工作。如果收到测试消息，说明配置正确。</p>
+          </div>
+          <div class="lang-en">
+            <p>Click the <strong>"Test"</strong> button to verify the channel works. If you receive the test message, the configuration is correct.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="my-4">
+
+    <!-- ==================== 7. Tips ==================== -->
+    <section id="tips" class="sdk-section">
+      <h2><i class="bi bi-7-circle-fill text-primary"></i> {{ _("sdk.tips_title") }}</h2>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6><i class="bi bi-check-circle text-success"></i> {{ _("sdk.tips_requests") }}</h6>
+          <div class="lang-zh">
+            <p>使用 <code>requests</code> 库进行 HTTP 调用。该库已在项目中预装，无需额外安装。</p>
+          </div>
+          <div class="lang-en">
+            <p>Use the <code>requests</code> library for HTTP calls. It is already available in the project, no extra installation needed.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6><i class="bi bi-check-circle text-success"></i> {{ _("sdk.tips_exceptions") }}</h6>
+          <div class="lang-zh">
+            <p>始终在 <code>send()</code> 和 <code>test()</code> 中用 <code>try/except</code> 捕获异常，并返回有意义的错误信息。未捕获的异常会导致推送静默失败。</p>
+          </div>
+          <div class="lang-en">
+            <p>Always wrap <code>send()</code> and <code>test()</code> logic in <code>try/except</code> and return meaningful error messages. Uncaught exceptions will cause silent push failures.</p>
+          </div>
+          <div class="code-wrapper mt-2">
+            <button class="btn-copy" onclick="copyCode(this)"><i class="bi bi-clipboard"></i> {{ _("sdk.copy") }}</button>
+<pre><code>def send(self, title: str, content: str) -&gt; tuple:
+    try:
+        # your logic here
+        ...
+    except Exception as e:
+        log.logger.error(f"MyChannel send: {e}")
+        return False, str(e)</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6><i class="bi bi-check-circle text-success"></i> {{ _("sdk.tips_timeout") }}</h6>
+          <div class="lang-zh">
+            <p>为所有 HTTP 请求设置合理的超时时间（推荐 <strong>15 秒</strong>）。过长的超时会导致消息队列阻塞。</p>
+          </div>
+          <div class="lang-en">
+            <p>Set reasonable timeouts for all HTTP requests (<strong>15 seconds</strong> recommended). Excessively long timeouts can block the message queue.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6><i class="bi bi-check-circle text-success"></i> {{ _("sdk.tips_test_real") }}</h6>
+          <div class="lang-zh">
+            <p><code>test()</code> 方法应该发送一条真实的测试消息，而不是仅仅检查网络连接。这样用户可以确认整个推送链路是否正常。</p>
+          </div>
+          <div class="lang-en">
+            <p>The <code>test()</code> method should send a real test message, not just check network connectivity. This lets users confirm the entire push pipeline works end-to-end.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6><i class="bi bi-check-circle text-success"></i> {{ _("sdk.tips_logging") }}</h6>
+          <div class="lang-zh">
+            <p>使用 <code>log.logger</code> 记录关键操作和错误。日志可以在 WebUI 的"日志"页面查看，便于调试。</p>
+          </div>
+          <div class="lang-en">
+            <p>Use <code>log.logger</code> to log key operations and errors. Logs are viewable in the WebUI "Logs" page, making debugging easier.</p>
+          </div>
+          <div class="code-wrapper mt-2">
+            <button class="btn-copy" onclick="copyCode(this)"><i class="bi bi-clipboard"></i> {{ _("sdk.copy") }}</button>
+<pre><code>import log
+
+log.logger.info("MyChannel: message sent successfully")
+log.logger.error(f"MyChannel: failed - {error_msg}")</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6><i class="bi bi-check-circle text-success"></i> {{ _("sdk.tips_encoding") }}</h6>
+          <div class="lang-zh">
+            <p>确保文件头部声明编码：<code># -*- coding: UTF-8 -*-</code>，特别是在消息中可能包含中文字符时。</p>
+          </div>
+          <div class="lang-en">
+            <p>Ensure the file header declares encoding: <code># -*- coding: UTF-8 -*-</code>, especially when messages may contain non-ASCII characters.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="my-4">
+
+    <!-- Footer -->
+    <div class="text-center text-muted py-3">
+      <p><i class="bi bi-book"></i> EGo Channel SDK &mdash; {{ _("sdk.footer") }}</p>
+      <a href="/channels" class="btn btn-outline-primary btn-sm"><i class="bi bi-arrow-left"></i> {{ _("sdk.back_channels") }}</a>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Copy code to clipboard / 复制代码到剪贴板
+function copyCode(btn) {
+  var pre = btn.parentElement.querySelector('pre code');
+  var text = pre.innerText;
+  navigator.clipboard.writeText(text).then(function() {
+    btn.classList.add('copied');
+    btn.innerHTML = '<i class="bi bi-check2"></i> {{ _("sdk.copied") }}';
+    setTimeout(function() {
+      btn.classList.remove('copied');
+      btn.innerHTML = '<i class="bi bi-clipboard"></i> {{ _("sdk.copy") }}';
+    }, 2000);
+  });
+}
+
+// Highlight active TOC item on scroll / 滚动时高亮当前目录项
+(function() {
+  var sections = document.querySelectorAll('.sdk-section');
+  var tocLinks = document.querySelectorAll('.sdk-toc .nav-link');
+  var observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        tocLinks.forEach(function(link) {
+          link.classList.remove('active');
+          if (link.getAttribute('href') === '#' + entry.target.id) {
+            link.classList.add('active');
+          }
+        });
+      }
+    });
+  }, { rootMargin: '-80px 0px -60% 0px' });
+  sections.forEach(function(section) {
+    observer.observe(section);
+  });
+})();
+</script>
+{% endblock %}

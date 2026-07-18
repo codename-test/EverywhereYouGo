@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="mb-0"><i class="bi bi-book-half"></i> {{ _("docs.title") }}</h1>
+</div>
+
+<p class="text-muted mb-4">{{ _("docs.subtitle") }}</p>
+
+<div class="row g-4">
+  <!-- Parser SDK -->
+  <div class="col-md-4">
+    <div class="card h-100 border-start border-primary border-4">
+      <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-code-slash text-primary"></i> {{ _("docs.parser_title") }}</h5>
+        <p class="card-text text-muted">{{ _("docs.parser_desc") }}</p>
+        <ul class="list-unstyled small text-muted mb-3">
+          <li><i class="bi bi-check2"></i> {{ _("docs.parser_feat1") }}</li>
+          <li><i class="bi bi-check2"></i> {{ _("docs.parser_feat2") }}</li>
+          <li><i class="bi bi-check2"></i> {{ _("docs.parser_feat3") }}</li>
+        </ul>
+      </div>
+      <div class="card-footer bg-transparent">
+        <a href="/docs/parser" class="btn btn-outline-primary btn-sm"><i class="bi bi-arrow-right"></i> {{ _("docs.view_doc") }}</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Channel SDK -->
+  <div class="col-md-4">
+    <div class="card h-100 border-start border-success border-4">
+      <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-send-check text-success"></i> {{ _("docs.channel_title") }}</h5>
+        <p class="card-text text-muted">{{ _("docs.channel_desc") }}</p>
+        <ul class="list-unstyled small text-muted mb-3">
+          <li><i class="bi bi-check2"></i> {{ _("docs.channel_feat1") }}</li>
+          <li><i class="bi bi-check2"></i> {{ _("docs.channel_feat2") }}</li>
+          <li><i class="bi bi-check2"></i> {{ _("docs.channel_feat3") }}</li>
+        </ul>
+      </div>
+      <div class="card-footer bg-transparent">
+        <a href="/docs/channel" class="btn btn-outline-success btn-sm"><i class="bi bi-arrow-right"></i> {{ _("docs.view_doc") }}</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Template SDK -->
+  <div class="col-md-4">
+    <div class="card h-100 border-start border-warning border-4">
+      <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-file-text text-warning"></i> {{ _("docs.template_title") }}</h5>
+        <p class="card-text text-muted">{{ _("docs.template_desc") }}</p>
+        <ul class="list-unstyled small text-muted mb-3">
+          <li><i class="bi bi-check2"></i> {{ _("docs.template_feat1") }}</li>
+          <li><i class="bi bi-check2"></i> {{ _("docs.template_feat2") }}</li>
+          <li><i class="bi bi-check2"></i> {{ _("docs.template_feat3") }}</li>
+        </ul>
+      </div>
+      <div class="card-footer bg-transparent">
+        <a href="/docs/template" class="btn btn-outline-warning btn-sm"><i class="bi bi-arrow-right"></i> {{ _("docs.view_doc") }}</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="alert alert-info mt-4">
+  <i class="bi bi-lightbulb"></i> {{ _("docs.tip") }}
+</div>
+{% endblock %}

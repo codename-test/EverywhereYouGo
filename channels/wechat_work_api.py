@@ -4,12 +4,77 @@
 
 import requests
 import log
-from . import BaseChannel
-
-
-class WechatWorkAPI(BaseChannel):
+class Channel(BaseChannel):
     CHANNEL_TYPE = "wechat_work_api"
     CHANNEL_NAME = "企业微信应用"
+    CONFIG_FIELDS = [
+    {
+        "name": "corp_id",
+        "type": "text",
+        "label": "Corp ID",
+        "label_zh": "企业 ID",
+        "desc": "WeCom Corp ID",
+        "desc_zh": "企业微信的企业 ID",
+        "placeholder": "",
+        "required": True,
+        "default": ""
+    },
+    {
+        "name": "corp_secret",
+        "type": "password",
+        "label": "App Secret",
+        "label_zh": "应用密钥",
+        "desc": "WeCom App Secret",
+        "desc_zh": "应用的 Secret",
+        "placeholder": "",
+        "required": True,
+        "default": ""
+    },
+    {
+        "name": "agent_id",
+        "type": "text",
+        "label": "Agent ID",
+        "label_zh": "应用 ID",
+        "desc": "WeCom App Agent ID",
+        "desc_zh": "应用的 AgentId",
+        "placeholder": "",
+        "required": True,
+        "default": ""
+    },
+    {
+        "name": "user_id",
+        "type": "textarea",
+        "label": "Recipients",
+        "label_zh": "接收人",
+        "desc": "User IDs, one per line. @all for everyone",
+        "desc_zh": "接收用户 ID，每行一个。填 @all 表示全部",
+        "placeholder": "@all",
+        "required": False,
+        "default": "@all"
+    },
+    {
+        "name": "party_id",
+        "type": "text",
+        "label": "Department ID",
+        "label_zh": "部门 ID",
+        "desc": "Department IDs separated by |",
+        "desc_zh": "部门 ID，多个用 | 分隔",
+        "placeholder": "1|2",
+        "required": False,
+        "default": ""
+    },
+    {
+        "name": "tag_id",
+        "type": "text",
+        "label": "Tag ID",
+        "label_zh": "标签 ID",
+        "desc": "Tag IDs separated by |",
+        "desc_zh": "标签 ID，多个用 | 分隔",
+        "placeholder": "1|2",
+        "required": False,
+        "default": ""
+    }
+]
 
     def __init__(self, config: dict):
         super().__init__(config)
