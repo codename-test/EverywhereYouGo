@@ -19,7 +19,8 @@ def _render(page, title, active_page="", **kwargs):
     from flask import current_app
     return render_template(page, title=title, active_page=active_page,
                            auth_enabled=bool(current_app.auth_token),
-                           lang=lang, js_i18n=js_i18n, **kwargs)
+                           lang=lang, js_i18n=js_i18n, version=VERSION,
+                           **kwargs)
 
 
 @pages_bp.route("/")
@@ -111,5 +112,5 @@ def settings_page():
     }
     translated_statuses = {s: i18n._(f"status.{s}") for s in db.MESSAGE_STATUSES}
     return _render("settings.html", i18n._("set.title"), "settings",
-                   config=config, version=VERSION,
+                   config=config,
                    message_statuses=translated_statuses)

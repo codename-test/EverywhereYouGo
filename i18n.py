@@ -169,6 +169,8 @@ TRANSLATIONS = {
         "src.push_fail": "推送失败，请查看日志",
         "src.copy_prompt_title": "复制提示词",
         "src.copy_prompt_fail": "自动复制失败，请手动选中下方文本复制（Ctrl+C / ⌘C）：",
+        "ver.new_version": "有新版本",
+        "ver.view_release": "查看发布页",
         "src.ai_prompt": "你是一个 Python 脚本生成器。请为下面的数据源编写一个解析器脚本。\n\n## 要求\n\n- 文件名：`parsers/{parserLabel}.py`（全小写，下划线分隔）\n- 必须包含一个 `parse(raw_body: bytes, headers: dict, query_params: dict) -> dict` 函数\n- 函数接收原始 HTTP 请求体、请求头和查询参数，返回一个字典\n- 返回字典的键将作为模板变量使用（如 title, content 等）\n- 请从样本数据中提取有意义的字段\n\n## 样本数据\n\n请求头：\n{rawHeaders}\n\n查询参数：\n{rawQuery}\n\n请求体：\n{sampleBody}\n\n请参考上面的样本数据，输出完整的 Python 解析器脚本代码（仅代码，无需额外说明）。",
 
         # -- Channel Plugins UI --
@@ -749,6 +751,8 @@ TRANSLATIONS = {
         "src.push_fail": "Push failed, check logs",
         "src.copy_prompt_title": "Copy Prompt",
         "src.copy_prompt_fail": "Auto-copy failed. Please select and copy manually (Ctrl+C):",
+        "ver.new_version": "New version available",
+        "ver.view_release": "View release",
         "src.ai_prompt": "You are a Python script generator. Please write a parser script for the following data source.\n\n## Requirements\n\n- Filename: `parsers/{parserLabel}.py` (all lowercase, underscore-separated)\n- Must include a `parse(raw_body: bytes, headers: dict, query_params: dict) -> dict` function\n- The function receives the raw HTTP request body, headers, and query params, and returns a dict\n- The dict keys will be used as template variables (e.g. title, content, etc.)\n- Extract meaningful fields from the sample data\n\n## Sample Data\n\nHeaders:\n{rawHeaders}\n\nQuery Params:\n{rawQuery}\n\nBody:\n{sampleBody}\n\nBased on the sample data above, output the complete Python parser script code (code only, no extra explanation).",
 
         # -- Channel Plugins UI --

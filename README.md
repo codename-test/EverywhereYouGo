@@ -1,11 +1,10 @@
 简体中文 | [English](README.en.md)
 
-[开始使用](#快速开始) · [架构](#架构) · [配置](#配置文件) · [部署](#部署) · [API](#api)
+[开始使用](#快速开始) · [架构](#架构) · [配置](#配置文件) · [部署](#部署)
 
-# EverywhereYouGo (EGo)
+# EverywhereYouGo (EGo) v1.1.0
 
 > 通用信息转发平台 — 数据 → 解析 → 路由 → 推送
-> Universal Message Forwarding Platform — Data → Parse → Route → Push
 
 接收任意 HTTP 请求，经解析器提取结构化字段，按条件路由到多个推送渠道。
 

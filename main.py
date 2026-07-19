@@ -3,6 +3,9 @@
 """
 EverywhereYouGo (EGo) — 通用信息转发平台
 主入口：初始化数据库、启动数据源监听、启动 WebUI。
+
+v1.1: 事件总线重构 — 全部引擎通过事件通信。
+  source_listener/ → parser_engine/ → router_engine/ → sender_engine/
 """
 
 import os
@@ -15,8 +18,16 @@ import subprocess
 
 import log
 import db
-import source_manager
-from source_manager import SourceManager
+
+# ── 导入引擎模块以注册事件处理器（顺序重要） ──
+import parser_engine    # 注册 message.received 处理器
+import router_engine    # 注册 message.parsed 处理器
+import sender_engine    # 注册 message.routed 处理器
+import source_listener  # HTTP 监听管理器
+from source_listener import ListenerManager
+
+import source_manager   # 编排层（保留向后兼容接口）
+import version_checker  # 版本检查
 from web_ui import run_web_ui, app as web_app
 
 VERSION = "1.0.1"
@@ -27,6 +38,7 @@ WELCOME = r"""
  ╔═══════════════════════════════════════════╗
  ║   EverywhereYouGo (EGo) 通用信息转发平台  ║
  ║           数据 → 解析 → 路由 → 推送       ║
+ ║              v1.1 EventBus                ║
  ╚═══════════════════════════════════════════╝
 """
 
@@ -38,7 +50,7 @@ def dnd_queue_checker():
         try:
             dnd = db.get_dnd()
             if dnd["enabled"]:
-                in_dnd = source_manager._is_in_dnd(dnd["start_time"], dnd["end_time"])
+                in_dnd = router_engine._is_in_dnd(dnd["start_time"], dnd["end_time"])
                 if was_in_dnd and not in_dnd:
                     log.logger.info("DND period ended. Flushing all pending queues...")
                     for s in db.get_sources():
@@ -68,7 +80,7 @@ def dnd_queue_checker():
 
 
 def init_ego():
-    """初始化 EGo 核心（数据库、SourceManager、后台线程），返回 mgr。"""
+    """初始化 EGo 核心（数据库、ListenerManager、后台线程），返回 mgr。"""
     # 0. 生成 SSL 证书（如果不存在）
     cert_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gen_cert.py")
     if os.path.isfile(cert_script):
@@ -92,8 +104,8 @@ def init_ego():
             h.setLevel(getattr(logging, log_level))
     log.logger.info(f"Log level: {log_level}")
 
-    # 3. 启动所有数据源
-    mgr = SourceManager()
+    # 3. 启动所有数据源监听
+    mgr = ListenerManager()
     mgr.start_all()
 
     # 注入 source_mgr 到 web_ui（供 API 调用）
@@ -120,10 +132,13 @@ def init_ego():
     cleanup_thread.start()
     log.logger.info("Message cleanup thread started.")
 
-    # 6. 启动时检查：如果有 pending 队列消息且不在 DND 时段，立即刷新
+    # 6. 启动版本检查线程（启动后 5 秒检查一次，之后每 24 小时）
+    version_checker.start_checker_thread()
+
+    # 7. 启动时检查：如果有 pending 队列消息且不在 DND 时段，立即刷新
     try:
         dnd = db.get_dnd()
-        in_dnd = dnd["enabled"] and source_manager._is_in_dnd(dnd["start_time"], dnd["end_time"])
+        in_dnd = dnd["enabled"] and router_engine._is_in_dnd(dnd["start_time"], dnd["end_time"])
         if not in_dnd:
             for s in db.get_sources():
                 if s["enabled"]:

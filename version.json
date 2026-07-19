@@ -1,0 +1,16 @@
+{
+  "version": "1.1.0",
+  "release_date": "2026-07-18",
+  "url": "https://github.com/codename-test/EverywhereYouGo/releases/latest",
+  "changelog": [
+    "事件总线 bus.py（blinker信号系统）",
+    "API 架构重构 api/ 蓝图拆分（web_ui 1217行→25行）",
+    "SSL 自签名证书自动生成",
+    "中英双语 i18n 全量支持",
+    "推送通道插件化（Channel SDK）",
+    "去重配置二级折叠面板 + 多字段拼接",
+    "消息清理时间可配置",
+    "版本更新检查（自动检测 GitHub 最新版本）",
+    "多项安全修复（SQL注入防护/认证中间件/parser缓存）"
+  ]
+}

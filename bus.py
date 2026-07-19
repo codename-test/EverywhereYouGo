@@ -26,8 +26,11 @@ source_stopped = _signals.signal("source.stopped")
 
 
 def emit(signal, **kwargs):
-    """触发事件。所有已注册的 handler 会被同步调用。"""
-    signal.send(None, **kwargs)
+    """
+    触发事件。所有已注册的 handler 会被同步调用。
+    返回 handler 结果列表 [(receiver, return_value), ...]。
+    """
+    return signal.send(None, **kwargs)
 
 
 def on(signal, fn, **kwargs):
