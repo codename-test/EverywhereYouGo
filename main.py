@@ -4,8 +4,8 @@
 EverywhereYouGo (EGo) — 通用信息转发平台
 主入口：初始化数据库、启动数据源监听、启动 WebUI。
 
-v1.1: 事件总线重构 — 全部引擎通过事件通信。
-  source_listener/ → parser_engine/ → router_engine/ → sender_engine/
+v1.1: 事件总线重构 + 异步队列发送。
+  source_listener/ → parser_engine/ → router_engine/ → sender_engine/ → worker
 """
 
 import os
@@ -28,9 +28,10 @@ from source_listener import ListenerManager
 
 import source_manager   # 编排层（保留向后兼容接口）
 import version_checker  # 版本检查
+import worker           # 异步发送 worker
 from web_ui import run_web_ui, app as web_app
 
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 AUTHOR = "codename-test"
 DESCRIPTION = "EverywhereYouGo (EGo) — 通用信息转发平台"
 
@@ -104,7 +105,10 @@ def init_ego():
             h.setLevel(getattr(logging, log_level))
     log.logger.info(f"Log level: {log_level}")
 
-    # 3. 启动所有数据源监听
+    # 3. 启动异步发送 worker（恢复崩溃遗留任务 + 开始消费队列）
+    worker.start_workers()
+
+    # 4. 启动所有数据源监听
     mgr = ListenerManager()
     mgr.start_all()
 
@@ -112,14 +116,14 @@ def init_ego():
     import web_ui
     web_ui.source_mgr = mgr
 
-    # 4. 启动 DND 队列检查线程
+    # 5. 启动 DND 队列检查线程
     dnd_thread = threading.Thread(
         target=dnd_queue_checker, daemon=True, name="dnd-checker"
     )
     dnd_thread.start()
     log.logger.info("DND queue checker started.")
 
-    # 5. 启动消息清理线程（每 10 分钟清理一次旧消息）
+    # 6. 启动消息清理线程（每 10 分钟清理一次旧消息）
     def cleanup_loop():
         while True:
             time.sleep(600)
@@ -132,10 +136,10 @@ def init_ego():
     cleanup_thread.start()
     log.logger.info("Message cleanup thread started.")
 
-    # 6. 启动版本检查线程（启动后 5 秒检查一次，之后每 24 小时）
+    # 7. 启动版本检查线程（启动后 5 秒检查一次，之后每 24 小时）
     version_checker.start_checker_thread()
 
-    # 7. 启动时检查：如果有 pending 队列消息且不在 DND 时段，立即刷新
+    # 8. 启动时检查：如果有 pending 队列消息且不在 DND 时段，立即刷新
     try:
         dnd = db.get_dnd()
         in_dnd = dnd["enabled"] and router_engine._is_in_dnd(dnd["start_time"], dnd["end_time"])
@@ -170,6 +174,7 @@ def main():
     # 信号处理
     def signal_handler(sig, frame):
         log.logger.info("Shutting down...")
+        worker.stop_workers()
         mgr.stop_all()
         sys.exit(0)
 
@@ -180,6 +185,7 @@ def main():
         run_web_ui(web_port)
     except KeyboardInterrupt:
         log.logger.info("Shutting down...")
+        worker.stop_workers()
         mgr.stop_all()
 
 

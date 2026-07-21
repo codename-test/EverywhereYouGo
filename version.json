@@ -1,16 +1,21 @@
 {
-  "version": "1.1.0",
-  "release_date": "2026-07-18",
+  "version": "1.2.0",
+  "release_date": "2026-07-21",
   "url": "https://github.com/codename-test/EverywhereYouGo/releases/latest",
   "changelog": [
-    "事件总线 bus.py（blinker信号系统）",
-    "API 架构重构 api/ 蓝图拆分（web_ui 1217行→25行）",
-    "SSL 自签名证书自动生成",
-    "中英双语 i18n 全量支持",
-    "推送通道插件化（Channel SDK）",
-    "去重配置二级折叠面板 + 多字段拼接",
-    "消息清理时间可配置",
-    "版本更新检查（自动检测 GitHub 最新版本）",
-    "多项安全修复（SQL注入防护/认证中间件/parser缓存）"
+    "异步队列架构（queue_backend + worker），HTTP 立即返回，后台消费",
+    "按通道粒度入队 + 3 次指数退避重试（5s/30s/2min）+ 死信队列",
+    "SQLite WAL 模式 + 进程崩溃后自动恢复 processing 任务",
+    "Jinja2 改用 SandboxedEnvironment，防 SSTI 注入",
+    "HTTP Body 限制 5MB（超限 413）+ 读取/整体超时（10s/60s）",
+    "Session 24h 过期 + 弱 Secret Key 启动告警",
+    "配置 JSON 文件锁（fcntl.flock）防并发写损坏",
+    "5 类配置 Schema 校验，缺字段记日志告警",
+    "DND 队列上限 10000 条，溢出 DISCARD 并告警",
+    "Parser 版本绑定（MD5 哈希），重发时检测解析器变更",
+    "/api/health 深度健康检查（SQLite/磁盘/配置/队列）",
+    "SSL 证书路径支持环境变量（EGO_SSL_DIR/EGO_SSL_CERT/EGO_SSL_KEY）",
+    "消息详情页展示 Trace ID + sent_at",
+    "测试用例从 51 扩展到 85（新增队列/配置/SSTI 测试）"
   ]
 }

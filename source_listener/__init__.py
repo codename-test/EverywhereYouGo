@@ -14,6 +14,9 @@ import bus
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
+# ── 安全限制 ──────────────────────────────
+MAX_BODY_SIZE = 5 * 1024 * 1024  # 5 MB
+
 # ── 样本数据存储 ──────────────────────────────
 _sample_store = {}
 _sample_lock = threading.Lock()
@@ -59,9 +62,21 @@ def clear_samples(source_id):
 class _HookHandler(BaseHTTPRequestHandler):
     """Webhook HTTP 处理器。收到 POST 后通过事件总线触发处理。"""
 
+    # 超时设置
+    timeout = 60  # 整体超时 60 秒
+
     def do_POST(self):
         source_id = getattr(self.server, "source_id", None)
         content_length = int(self.headers.get("Content-Length", 0))
+
+        # Body 大小限制
+        if content_length > MAX_BODY_SIZE:
+            log.logger.warning(f"Source [{source_id}] Body too large: {content_length} bytes (limit {MAX_BODY_SIZE})")
+            self.send_response(413)
+            self.end_headers()
+            self.wfile.write(b'{"status":"error","error":"Payload too large"}')
+            return
+
         raw_body = self.rfile.read(content_length) if content_length > 0 else b""
 
         # 解析 query params
@@ -86,6 +101,15 @@ class _HookHandler(BaseHTTPRequestHandler):
             self.send_response(500)
             self.end_headers()
             self.wfile.write(b'{"status":"error"}')
+
+    def handle_one_request(self):
+        """覆盖以捕获超时异常。"""
+        try:
+            super().handle_one_request()
+        except TimeoutError:
+            log.logger.warning(f"Source [{getattr(self.server, 'source_id', '?')}] Request timed out")
+        except Exception:
+            pass
 
     def log_message(self, format, *args):
         pass
@@ -118,6 +142,7 @@ class ListenerManager:
         try:
             server = HTTPServer(("0.0.0.0", src["port"]), _HookHandler)
             server.source_id = source_id
+            server.timeout = 10  # 读取超时 10 秒
             self._servers[source_id] = server
 
             t = threading.Thread(

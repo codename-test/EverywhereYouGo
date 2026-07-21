@@ -16,4 +16,5 @@ def _conn():
         _conn_singleton = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
         _conn_singleton.row_factory = sqlite3.Row
         _conn_singleton.execute("PRAGMA busy_timeout=5000")
+        _conn_singleton.execute("PRAGMA journal_mode=WAL")
     return _conn_singleton

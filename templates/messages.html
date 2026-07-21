@@ -85,7 +85,7 @@
                 </tr>
             </thead>
             <tbody id="msgBody">
-                <tr><td colspan="6" class="text-center text-muted">{{ _("common.loading") }}</td></tr>
+                <tr><td colspan="7" class="text-center text-muted">{{ _("common.loading") }}</td></tr>
             </tbody>
         </table>
     </div>
@@ -124,7 +124,7 @@ function loadMessages(page = 0) {
 function renderMessages(msgs) {
     const tbody = document.getElementById('msgBody');
     if (!msgs.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">' + t("msg.no_messages") + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">' + t("msg.no_messages") + '</td></tr>';
         return;
     }
     tbody.innerHTML = msgs.map(m => {
@@ -157,10 +157,12 @@ function renderMessages(msgs) {
             <td>${actions}</td>
         </tr>
         <tr id="detail-${m.id}" style="display:none">
-            <td colspan="6" class="bg-dark small text-light">
+            <td colspan="7" class="bg-dark small text-light">
                 <div class="p-2">
+                    <div class="mb-1"><b>Trace ID</b> <code>${escHtml(m.trace_id)}</code></div>
                     ${m.error ? '<div class="text-danger mb-1"><b>' + t("msg.error_label") + '</b> ' + escHtml(m.error) + '</div>' : ''}
                     <div class="mb-1"><b>${t("msg.time_label")}</b> ${m.created_at}</div>
+                    ${m.sent_at ? '<div class="mb-1"><b>' + t("msg.sent_at_label") + '</b> ' + m.sent_at + '</div>' : ''}
                     ${m.dedup_key ? '<div class="mb-1"><b>' + t("msg.dedup_key_label") + '</b> ' + escHtml(m.dedup_key) + '</div>' : ''}
                     ${m.raw_body ? '<details class="mb-1"><summary><b>' + t("msg.raw_data") + '</b></summary><pre class="mt-1 p-2 rounded" style="max-height:200px;overflow:auto;font-size:12px;background:#1e1e1e;color:#d4d4d4;border:1px solid #333">' + escHtml(m.raw_body) + '</pre></details>' : ''}
                     ${m.msg_json ? '<details class="mb-1"><summary><b>' + t("msg.parsed_result") + '</b></summary><pre class="mt-1 p-2 rounded" style="max-height:200px;overflow:auto;font-size:12px;background:#1e1e1e;color:#d4d4d4;border:1px solid #333">' + escHtml(fmtJson(m.msg_json)) + '</pre></details>' : ''}

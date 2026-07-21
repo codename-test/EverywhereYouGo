@@ -116,6 +116,42 @@ class TestJinja2Engine:
         assert result["title"] is not None
 
 
+class TestSSTIProtection:
+    """SSTI（服务端模板注入）防护测试。"""
+
+    def test_ssti_class_access_blocked(self):
+        """尝试通过 __class__ 访问 Python 类应被沙箱阻止。"""
+        # 典型的 SSTI payload
+        payload = "{{ ''.__class__.__mro__[1].__subclasses__() }}"
+        result = render_template("jinja2", title_tpl=payload, content_tpl="", msg={})
+        # SandboxedEnvironment 会阻止访问 __class__，返回空或错误
+        assert "__class__" not in result["title"]
+        assert "subclasses" not in result["title"]
+
+    def test_ssti_import_blocked(self):
+        """尝试导入模块应被阻止。"""
+        payload = "{% import os %}{{ os.popen('id').read() }}"
+        result = render_template("jinja2", title_tpl=payload, content_tpl="", msg={})
+        # 导入失败，返回回退值
+        assert "uid=" not in result["title"]
+
+    def test_ssti_getattr_blocked(self):
+        """尝试通过 attr 过滤器访问私有属性应被阻止。"""
+        payload = "{{ msg|attr('__class__') }}"
+        result = render_template("jinja2", title_tpl=payload, content_tpl="", msg={"test": "value"})
+        # attr 过滤器访问 __class__ 应被阻止
+        assert "__class__" not in str(result["title"])
+
+    def test_normal_template_still_works(self):
+        """正常模板在沙箱中应正常工作。"""
+        result = render_template("jinja2",
+                                 title_tpl="{{ msg.title }} - {{ msg.year }}",
+                                 content_tpl="{{ msg.overview }}",
+                                 msg={"title": "星际穿越", "year": 2014, "overview": "科幻电影"})
+        assert result["title"] == "星际穿越 - 2014"
+        assert result["content"] == "科幻电影"
+
+
 class TestEngineFallback:
     """引擎选择。"""
 

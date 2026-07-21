@@ -7,6 +7,7 @@ api/__init__.py — Flask app 初始化 + 蓝图注册。
 import os
 import secrets
 import hmac
+from datetime import timedelta
 
 import log
 import i18n
@@ -19,7 +20,18 @@ def create_app(source_mgr=None):
                 template_folder=os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates"))
     app.config["TEMPLATES_AUTO_RELOAD"] = True
     app.jinja_env.globals["_"] = i18n._
-    app.secret_key = os.getenv("EGO_SECRET_KEY", secrets.token_hex(16))
+
+    # ── Secret Key + Session 过期 ──
+    secret = os.getenv("EGO_SECRET_KEY", "")
+    if not secret:
+        secret = secrets.token_hex(16)
+        log.logger.warning("EGO_SECRET_KEY not set, using random key (sessions invalidated on restart). "
+                           "Set EGO_SECRET_KEY env var for persistent sessions.")
+    elif len(secret) < 16:
+        log.logger.warning("EGO_SECRET_KEY is too short (< 16 chars). Consider using a stronger key.")
+
+    app.secret_key = secret
+    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=24)
 
     # ── 认证 ──
     AUTH_TOKEN = os.getenv("EGO_AUTH_TOKEN", "")

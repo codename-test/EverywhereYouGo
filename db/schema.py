@@ -71,6 +71,7 @@ def init_db():
             raw_body        TEXT,
             msg_json        TEXT,
             dedup_key       TEXT,
+            parser_hash     TEXT    DEFAULT '',
             status          TEXT    DEFAULT 'RECEIVED',
             channel_results TEXT,
             error           TEXT,
@@ -91,6 +92,42 @@ def init_db():
             module    TEXT    DEFAULT '',
             message   TEXT    NOT NULL,
             trace_id  TEXT    DEFAULT ''
+        );
+
+        -- ── 消息队列（异步发送） ──
+        CREATE TABLE IF NOT EXISTS message_queue (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            trace_id        TEXT    NOT NULL,
+            source_id       INTEGER,
+            msg_json        TEXT    NOT NULL,
+            channel_id      INTEGER,
+            template_id     INTEGER,
+            dedup_key       TEXT    DEFAULT '',
+            retry_count     INTEGER DEFAULT 0,
+            max_retries     INTEGER DEFAULT 3,
+            next_retry_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            status          TEXT    DEFAULT 'pending',
+            last_error      TEXT    DEFAULT '',
+            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_mq_dequeue
+            ON message_queue(status, next_retry_at)
+            WHERE status = 'pending';
+
+        -- ── 死信队列 ──
+        CREATE TABLE IF NOT EXISTS dead_letter_queue (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            trace_id        TEXT    NOT NULL,
+            source_id       INTEGER,
+            msg_json        TEXT    NOT NULL,
+            channel_id      INTEGER,
+            template_id     INTEGER,
+            dedup_key       TEXT    DEFAULT '',
+            error           TEXT,
+            retry_count     INTEGER DEFAULT 0,
+            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            moved_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
         -- 内置 Emby 解析器
@@ -138,7 +175,7 @@ def init_db():
         pass
 
     # migrate old message_log that lack new columns
-    for col in ['source_name', 'msg_json', 'dedup_key', 'channel_results', 'sent_at', 'updated_at']:
+    for col in ['source_name', 'msg_json', 'dedup_key', 'parser_hash', 'channel_results', 'sent_at', 'updated_at']:
         try:
             if col == 'updated_at':
                 conn.execute(f"ALTER TABLE message_log ADD COLUMN {col} TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
@@ -147,6 +184,4 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
-    # drop old message_queue if exists
-    conn.execute("DROP TABLE IF EXISTS message_queue")
     conn.commit()

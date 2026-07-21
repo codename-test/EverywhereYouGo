@@ -11,6 +11,9 @@ import db
 import bus
 import router
 
+# DND 队列上限
+DND_QUEUE_LIMIT = 10000
+
 
 def _on_message_parsed(sender, *, trace_id, source_id, msg):
     """
@@ -32,7 +35,16 @@ def _on_message_parsed(sender, *, trace_id, source_id, msg):
     if not has_urgent:
         dnd = db.get_dnd()
         if dnd["enabled"] and _is_in_dnd(dnd["start_time"], dnd["end_time"]):
-            log.logger.info(f"[{trace_id}] DND active, queuing")
+            # 检查队列上限
+            pending_count = db.get_message_count(status="PENDING")
+            if pending_count >= DND_QUEUE_LIMIT:
+                log.logger.warning(
+                    f"[{trace_id}] DND queue full ({pending_count}/{DND_QUEUE_LIMIT}), discarding message"
+                )
+                db.update_message(trace_id, status="DISCARDED",
+                                  error=f"DND queue full ({DND_QUEUE_LIMIT})")
+                return None
+            log.logger.info(f"[{trace_id}] DND active, queuing ({pending_count + 1}/{DND_QUEUE_LIMIT})")
             db.update_message(trace_id, status="PENDING")
             return None
 

@@ -2,7 +2,7 @@
 # -*- coding: UTF-8 -*-
 """
 数据库 CRUD 查询函数。
-按实体组织：Parsers / Sources / Channels / Templates / Bindings / Messages / Config / Logs / Stats。
+按实体组织：Parsers / Sources / Channels / Templates / Bindings / Messages / Config / Logs / Stats / Queue。
 """
 
 import json
@@ -298,7 +298,7 @@ def create_message_log(trace_id, source_id, source_name="", raw_body="", status=
 def update_message(trace_id, **kwargs):
     if not kwargs:
         return
-    allowed = {"status", "msg_json", "error", "channel_results", "raw_body", "sent_at", "dedup_key"}
+    allowed = {"status", "msg_json", "error", "channel_results", "raw_body", "sent_at", "dedup_key", "parser_hash"}
     sets = [f"{k}=?" for k in kwargs if k in allowed]
     if not sets:
         return
@@ -311,7 +311,7 @@ def update_message(trace_id, **kwargs):
 def update_message_by_id(msg_id, **kwargs):
     if not kwargs:
         return
-    allowed = {"status", "msg_json", "error", "channel_results", "raw_body", "sent_at", "dedup_key"}
+    allowed = {"status", "msg_json", "error", "channel_results", "raw_body", "sent_at", "dedup_key", "parser_hash"}
     sets = [f"{k}=?" for k in kwargs if k in allowed]
     if not sets:
         return
@@ -533,3 +533,40 @@ def get_stats():
         "messages_failed":  get_message_count(status="FAILED"),
         "messages_success": get_message_count(status="SUCCESS"),
     }
+
+
+# ═══════════════════════════════════════════════
+#  Queue & DLQ（供 API 和 Dashboard 使用）
+# ═══════════════════════════════════════════════
+
+def get_mq_stats():
+    """消息队列统计（含死信队列）。"""
+    conn = _conn()
+    pending = conn.execute(
+        "SELECT COUNT(*) FROM message_queue WHERE status='pending'"
+    ).fetchone()[0]
+    processing = conn.execute(
+        "SELECT COUNT(*) FROM message_queue WHERE status='processing'"
+    ).fetchone()[0]
+    dlq = conn.execute(
+        "SELECT COUNT(*) FROM dead_letter_queue"
+    ).fetchone()[0]
+    return {"mq_pending": pending, "mq_processing": processing, "dlq_count": dlq}
+
+
+def get_dlq_items(limit=50):
+    """获取死信队列列表。"""
+    rows = _conn().execute(
+        "SELECT * FROM dead_letter_queue ORDER BY moved_at DESC LIMIT ?",
+        (limit,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_mq_items(limit=50):
+    """获取当前队列中的待处理任务。"""
+    rows = _conn().execute(
+        "SELECT * FROM message_queue ORDER BY created_at DESC LIMIT ?",
+        (limit,)
+    ).fetchall()
+    return [dict(r) for r in rows]

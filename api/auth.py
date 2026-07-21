@@ -22,6 +22,7 @@ def login_action():
     token = request.form.get("token", "")
     auth_token = current_app.auth_token
     if auth_token and hmac.compare_digest(token, auth_token):
+        session.permanent = True  # 启用 PERMANENT_SESSION_LIFETIME（24h）
         session["authenticated"] = True
         return redirect(request.args.get("next", "/"))
     return render_template("login.html", title=i18n._("login.title"),

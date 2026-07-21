@@ -16,8 +16,9 @@ app = create_app(source_mgr=None)
 
 def run_web_ui(port: int = 5000):
     """由 main.py 调用，启动 Flask 开发服务器。支持 SSL。"""
-    cert_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs", "ego.crt")
-    key_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs", "ego.key")
+    # 支持环境变量配置证书路径
+    cert_file = os.getenv("EGO_SSL_CERT", os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs", "ego.crt"))
+    key_file = os.getenv("EGO_SSL_KEY", os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs", "ego.key"))
     ssl_ctx = None
     if os.path.isfile(cert_file) and os.path.isfile(key_file):
         ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

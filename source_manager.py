@@ -12,6 +12,7 @@ v1.1 重构完成：
 
 import json
 import uuid
+import hashlib
 import log
 import db
 import bus
@@ -25,6 +26,20 @@ from source_listener import (
     get_samples,
     clear_samples,
 )
+
+
+def _calc_parser_hash(filename):
+    """计算解析器文件内容的哈希值。"""
+    try:
+        import os
+        parser_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "parsers")
+        path = os.path.join(parser_dir, filename)
+        if os.path.isfile(path):
+            with open(path, "rb") as f:
+                return hashlib.md5(f.read()).hexdigest()[:12]
+    except Exception:
+        pass
+    return ""
 
 
 # ── 全链路处理 ──────────────────────────────
@@ -139,9 +154,20 @@ def retry_message(msg_id, mode="original"):
         parser = db.get_parser(src["parser_id"]) if src and src.get("parser_id") else None
         if not parser:
             return False, "Parser not found"
+
+        # 检查解析器版本是否变化
+        old_hash = rec.get("parser_hash", "")
+        new_hash = _calc_parser_hash(parser["filename"])
+        if old_hash and new_hash and old_hash != new_hash:
+            log.logger.warning(
+                f"[Retry #{msg_id}] Parser changed: {old_hash} → {new_hash}, "
+                f"re-parsing with new version"
+            )
+
         try:
             msg = parser_loader.run_parser(parser["filename"], raw_body, {}, {})
-            db.update_message_by_id(msg_id, msg_json=json.dumps(msg, ensure_ascii=False))
+            db.update_message_by_id(msg_id, msg_json=json.dumps(msg, ensure_ascii=False),
+                                    parser_hash=new_hash)
         except Exception as e:
             return False, f"Reparse error: {e}"
     elif rec.get("msg_json"):

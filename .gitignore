@@ -38,3 +38,6 @@ docker-compose.override.yml
 # Environment
 .env
 .env.*
+
+# Internal docs (not for git)
+doc/improvement_plan.md

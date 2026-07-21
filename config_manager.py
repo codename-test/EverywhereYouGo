@@ -8,6 +8,7 @@ config/*.json 为磁盘上的唯一真相源，SQLite 为运行时缓存。
 import os
 import json
 import time
+import fcntl
 import log
 
 CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
@@ -21,6 +22,34 @@ _CONFIG_FILES = {
     "bindings":  "bindings.json",
 }
 
+# 配置 Schema：每类配置的必需字段
+_SCHEMA = {
+    "parsers":   {"required": ["id", "name", "filename"]},
+    "sources":   {"required": ["id", "name", "port"]},
+    "channels":  {"required": ["id", "name", "type"]},
+    "templates": {"required": ["id", "name"]},
+    "bindings":  {"required": ["id", "source_id", "channel_id", "template_id"]},
+}
+
+
+def _validate_config(name: str, data) -> list:
+    """校验配置数据，返回错误列表（空列表表示通过）。"""
+    errors = []
+    schema = _SCHEMA.get(name)
+    if not schema:
+        return errors
+    if not isinstance(data, list):
+        return [f"{name}: expected list, got {type(data).__name__}"]
+    required = schema["required"]
+    for i, row in enumerate(data):
+        if not isinstance(row, dict):
+            errors.append(f"{name}[{i}]: expected dict, got {type(row).__name__}")
+            continue
+        missing = [f for f in required if f not in row]
+        if missing:
+            errors.append(f"{name}[{i}]: missing required fields: {', '.join(missing)}")
+    return errors
+
 
 def _timestamp() -> float:
     return time.time()
@@ -33,19 +62,27 @@ def _read_json(name: str):
         return None
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            fcntl.flock(f, fcntl.LOCK_SH)  # 共享锁（读）
+            try:
+                return json.load(f)
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
     except Exception as e:
         log.logger.warning(f"Failed to read {path}: {e}")
         return None
 
 
 def _write_json(name: str, data):
-    """原子写入 JSON（tmp + rename）。"""
+    """原子写入 JSON（tmp + rename），带排他文件锁防并发写。"""
     os.makedirs(CONFIG_DIR, exist_ok=True)
     path = os.path.join(CONFIG_DIR, name)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        fcntl.flock(f, fcntl.LOCK_EX)  # 排他锁（写）
+        try:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
     os.replace(tmp, path)
 
 
@@ -117,28 +154,48 @@ def load_all():
     # 按依赖顺序清空 + 重新导入（保留 id）
     # 1. parsers
     conn.executescript("DELETE FROM source_channels; DELETE FROM sources; DELETE FROM templates; DELETE FROM channels; DELETE FROM parsers;")
-    for row in _read_json("parsers.json") or []:
+    parsers_data = _read_json("parsers.json") or []
+    errors = _validate_config("parsers", parsers_data)
+    if errors:
+        log.logger.warning(f"Config validation errors: {'; '.join(errors[:5])}")
+    for row in parsers_data:
         conn.execute("INSERT INTO parsers (id, name, filename, description) VALUES (?,?,?,?)",
                      (row["id"], row["name"], row["filename"], row.get("description", "")))
 
     # 2. channels
-    for row in _read_json("channels.json") or []:
+    channels_data = _read_json("channels.json") or []
+    errors = _validate_config("channels", channels_data)
+    if errors:
+        log.logger.warning(f"Config validation errors: {'; '.join(errors[:5])}")
+    for row in channels_data:
         conn.execute("INSERT INTO channels (id, name, type, config, enabled) VALUES (?,?,?,?,?)",
                      (row["id"], row["name"], row["type"], row.get("config", "{}"), row.get("enabled", 1)))
 
     # 3. templates
-    for row in _read_json("templates.json") or []:
+    templates_data = _read_json("templates.json") or []
+    errors = _validate_config("templates", templates_data)
+    if errors:
+        log.logger.warning(f"Config validation errors: {'; '.join(errors[:5])}")
+    for row in templates_data:
         conn.execute("INSERT INTO templates (id, name, engine, title_tpl, content_tpl) VALUES (?,?,?,?,?)",
                      (row["id"], row["name"], row.get("engine", "jinja2"),
                       row.get("title_tpl", ""), row.get("content_tpl", "")))
 
     # 4. sources
-    for row in _read_json("sources.json") or []:
+    sources_data = _read_json("sources.json") or []
+    errors = _validate_config("sources", sources_data)
+    if errors:
+        log.logger.warning(f"Config validation errors: {'; '.join(errors[:5])}")
+    for row in sources_data:
         conn.execute("INSERT INTO sources (id, name, port, parser_id, enabled) VALUES (?,?,?,?,?)",
                      (row["id"], row["name"], row["port"], row.get("parser_id"), row.get("enabled", 1)))
 
     # 5. bindings
-    for row in _read_json("bindings.json") or []:
+    bindings_data = _read_json("bindings.json") or []
+    errors = _validate_config("bindings", bindings_data)
+    if errors:
+        log.logger.warning(f"Config validation errors: {'; '.join(errors[:5])}")
+    for row in bindings_data:
         conn.execute("""INSERT INTO source_channels
                         (id, source_id, channel_id, template_id, condition_expr,
                          dedup_key_expr, dedup_window, priority, enabled, urgent)

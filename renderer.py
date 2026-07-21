@@ -6,10 +6,12 @@
 
 import log
 
-# 尝试 import jinja2
+# 尝试 import jinja2（使用 SandboxedEnvironment 防 SSTI）
 try:
-    from jinja2 import Template as Jinja2Template, UndefinedError
+    from jinja2.sandbox import SandboxedEnvironment
+    from jinja2 import UndefinedError
     HAS_JINJA2 = True
+    _jinja_env = SandboxedEnvironment()
 except ImportError:
     HAS_JINJA2 = False
     log.logger.warning("Jinja2 not installed, falling back to simple engine only")
@@ -55,14 +57,14 @@ def _render_simple(title_tpl: str, content_tpl: str, msg: dict) -> dict:
 
 
 def _render_jinja2(title_tpl: str, content_tpl: str, msg: dict) -> dict:
-    """Jinja2 模板渲染。msg 作为 msg 变量注入。"""
+    """Jinja2 模板渲染（沙箱环境，防 SSTI）。msg 作为 msg 变量注入。"""
     if not HAS_JINJA2:
         log.logger.warning("Jinja2 not available, falling back to simple")
         return _render_simple(title_tpl, content_tpl, msg)
 
     try:
-        title = Jinja2Template(title_tpl).render(msg=msg) if title_tpl else str(msg.get("title", ""))
-        content = Jinja2Template(content_tpl).render(msg=msg) if content_tpl else "\n".join(f"- **{k}**: {v}" for k, v in msg.items() if k != "title" and isinstance(v, (str, int, float, bool)))
+        title = _jinja_env.from_string(title_tpl).render(msg=msg) if title_tpl else str(msg.get("title", ""))
+        content = _jinja_env.from_string(content_tpl).render(msg=msg) if content_tpl else "\n".join(f"- **{k}**: {v}" for k, v in msg.items() if k != "title" and isinstance(v, (str, int, float, bool)))
         return {"title": title, "content": content}
     except Exception as e:
         log.logger.error(f"Jinja2 render error: {e}")
