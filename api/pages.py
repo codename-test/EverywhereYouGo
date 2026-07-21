@@ -10,7 +10,7 @@ from flask import Blueprint, render_template
 pages_bp = Blueprint("pages", __name__)
 
 PARSERS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "parsers")
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 
 
 def _render(page, title, active_page="", **kwargs):
