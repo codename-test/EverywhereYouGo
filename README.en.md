@@ -1,4 +1,3 @@
-[简体中文](README.md) | English
 
 # EverywhereYouGo (EGo) v1.2.0
 
