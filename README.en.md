@@ -1,6 +1,8 @@
 [简体中文](README.md) | English
 
-[Quick Start](#quick-start) · [Architecture](#architecture) · [Config](#config) · [Deploy](#deploy) · [API](#api)
+# EverywhereYouGo (EGo) v1.2.0
+
+> Universal Message Forwarding Platform — Data → Parse → Route → Push
 
 # EverywhereYouGo (EGo)
 
