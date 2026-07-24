@@ -31,11 +31,16 @@ class TestValidateConfig:
         data = [{"id": 1, "name": "s1", "port": 9001}]
         assert _validate_config("sources", data) == []
 
-    def test_sources_missing_port(self):
-        """sources 缺 port 报错。"""
-        data = [{"id": 1, "name": "s1"}]
+    def test_sources_port_optional(self):
+        """路径路由改造后 port 非必填，缺 port 也通过校验（路径模式数据源）。"""
+        data = [{"id": 1, "name": "s1"}]  # 无 port
+        assert _validate_config("sources", data) == []
+
+    def test_sources_missing_name(self):
+        """sources 缺 name 报错。"""
+        data = [{"id": 1}]  # 缺 name
         errors = _validate_config("sources", data)
-        assert any("port" in e for e in errors)
+        assert any("name" in e for e in errors)
 
     def test_valid_channels(self):
         """合法的 channels 配置通过校验。"""

@@ -14,6 +14,11 @@
     </select>
   </div>
   <div class="mb-3">
+    <label class="form-label">{{ _("set.path_prefix") }}</label>
+    <div class="form-text mb-1">{{ _("set.path_prefix_help") }}</div>
+    <input class="form-control" name="path_prefix" value="{{ config.path_prefix }}" style="max-width:200px" placeholder="in">
+  </div>
+  <div class="mb-3">
     <label class="form-label"><input type="checkbox" name="dnd_enabled" value="1" {{ 'checked' if config.dnd_enabled == '1' }}> {{ _("set.dnd_enable") }}</label>
     <div class="row g-2 mt-1">
       <div class="col"><input class="form-control" name="dnd_start" value="{{ config.dnd_start }}" placeholder="{{ _('set.dnd_start_placeholder') }}"></div>

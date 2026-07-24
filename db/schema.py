@@ -22,11 +22,15 @@ def init_db():
         CREATE TABLE IF NOT EXISTS sources (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             name        TEXT    NOT NULL,
-            port        INTEGER UNIQUE NOT NULL,
+            slug        TEXT,
+            port        INTEGER,
+            path        TEXT    DEFAULT '',
+            parent_id   INTEGER,
             parser_id   INTEGER,
             enabled     INTEGER DEFAULT 1,
             created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (parser_id) REFERENCES parsers(id)
+            FOREIGN KEY (parser_id) REFERENCES parsers(id),
+            FOREIGN KEY (parent_id) REFERENCES sources(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS channels (
@@ -158,6 +162,7 @@ def init_db():
         INSERT OR IGNORE INTO system_config (key, value) VALUES ('cleanup_IGNORED', '168');
         INSERT OR IGNORE INTO system_config (key, value) VALUES ('cleanup_PENDING', '0');
         INSERT OR IGNORE INTO system_config (key, value) VALUES ('cleanup_SENDING', '0');
+        INSERT OR IGNORE INTO system_config (key, value) VALUES ('path_prefix', 'in');
     """)
 
     # migrate old source_channels that lack dedup columns
@@ -183,5 +188,37 @@ def init_db():
                 conn.execute(f"ALTER TABLE message_log ADD COLUMN {col} TEXT")
         except sqlite3.OperationalError:
             pass
+
+    # migrate sources table: add slug/parent_id/path, make port nullable
+    # check if migration needed by looking for 'slug' column
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(sources)").fetchall()]
+    if 'slug' not in cols:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS sources_new (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT    NOT NULL,
+                slug        TEXT,
+                port        INTEGER,
+                path        TEXT    DEFAULT '',
+                parent_id   INTEGER,
+                parser_id   INTEGER,
+                enabled     INTEGER DEFAULT 1,
+                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (parser_id) REFERENCES parsers(id),
+                FOREIGN KEY (parent_id) REFERENCES sources_new(id) ON DELETE CASCADE
+            );
+
+            INSERT INTO sources_new (id, name, port, parser_id, enabled, created_at)
+                SELECT id, name, port, parser_id, enabled, created_at FROM sources;
+
+            DROP TABLE sources;
+            ALTER TABLE sources_new RENAME TO sources;
+        """)
+
+    # ensure indexes exist (fresh install or post-migration)
+    conn.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_sources_slug
+                    ON sources(slug) WHERE slug IS NOT NULL""")
+    conn.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_sources_port
+                    ON sources(port) WHERE port IS NOT NULL""")
 
     conn.commit()

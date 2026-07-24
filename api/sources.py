@@ -16,22 +16,40 @@ PARSERS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 
 @sources_bp.route("/api/sources", methods=["GET"])
 def api_sources():
-    sources = db.get_sources()
-    for s in sources:
+    """Return top-level sources (groups + port-mode) with nested sub-routes."""
+    groups = db.get_source_groups()
+    for s in groups:
         p = db.get_parser(s.get("parser_id"))
         s["parser_name"] = p["name"] if p else "-"
         s["channels"] = db.get_source_channels(s["id"])
-    return jsonify(sources)
+        # Attach sub-routes for path-mode groups
+        if s.get("slug"):
+            subs = db.get_sub_routes(s["id"])
+            for sub in subs:
+                sp = db.get_parser(sub.get("parser_id"))
+                sub["parser_name"] = sp["name"] if sp else "-"
+                sub["channels"] = db.get_source_channels(sub["id"])
+            s["sub_routes"] = subs
+    return jsonify(groups)
 
 
 @sources_bp.route("/api/sources", methods=["POST"])
 def api_create_source():
     data = request.json
-    sid = db.create_source(data["name"], data["port"], data.get("parser_id"), data.get("enabled", 1))
+    sid = db.create_source(
+        name=data["name"],
+        port=data.get("port"),
+        parser_id=data.get("parser_id"),
+        enabled=data.get("enabled", 1),
+        slug=data.get("slug"),
+        parent_id=data.get("parent_id"),
+        path=data.get("path", ""),
+    )
     if sid is None:
         return jsonify({"error": i18n._("err.port_in_use")}), 400
+    # Only start listener for port-mode sources (no parent, has port)
     sm = current_app.source_mgr
-    if sm:
+    if sm and data.get("port") and not data.get("parent_id"):
         sm.start_source(sid)
     import config_manager
     config_manager.sync_table("sources")
@@ -45,10 +63,12 @@ def api_update_source(sid):
     if not old:
         return jsonify({"error": i18n._("err.not_found")}), 404
     sm = current_app.source_mgr
-    if sm:
+    # Only stop/start listener for port-mode sources
+    if sm and old.get("port") and not old.get("parent_id"):
         sm.stop_source(sid)
-    db.update_source(sid, **{k: v for k, v in data.items() if k in ("name", "port", "parser_id", "enabled")})
-    if sm and data.get("enabled", old["enabled"]):
+    db.update_source(sid, **{k: v for k, v in data.items()
+                             if k in ("name", "port", "parser_id", "enabled", "slug", "parent_id", "path")})
+    if sm and old.get("port") and not old.get("parent_id") and data.get("enabled", old["enabled"]):
         sm.start_source(sid)
     import config_manager
     config_manager.sync_table("sources")
@@ -57,10 +77,15 @@ def api_update_source(sid):
 
 @sources_bp.route("/api/sources/<int:sid>", methods=["DELETE"])
 def api_delete_source(sid):
+    old = db.get_source(sid)
     sm = current_app.source_mgr
-    if sm:
+    if sm and old and old.get("port") and not old.get("parent_id"):
         sm.stop_source(sid)
     db.delete_source(sid)
+    import config_manager
+    config_manager.sync_table("sources")
+    # delete_source 会级联删除子路由及其通道绑定，bindings 也需同步
+    config_manager.sync_table("bindings")
     return jsonify({"status": "ok"})
 
 

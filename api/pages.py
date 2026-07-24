@@ -10,7 +10,7 @@ from flask import Blueprint, render_template
 pages_bp = Blueprint("pages", __name__)
 
 PARSERS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "parsers")
-VERSION = "1.1.0"
+VERSION = "1.2.1"
 
 
 def _render(page, title, active_page="", **kwargs):
@@ -43,9 +43,11 @@ def sources_page():
     channels = db.get_channels()
     templates = db.get_templates()
     sc = db.get_all_source_channels()
+    path_prefix = db.get_config("path_prefix", "in")
     return _render("sources_page.html", i18n._("src.title"), "sources",
                    sources=sources, parsers=parsers,
-                   channels=channels, templates=templates, sc=sc)
+                   channels=channels, templates=templates, sc=sc,
+                   path_prefix=path_prefix)
 
 
 @pages_bp.route("/parsers")
@@ -73,13 +75,37 @@ def docs_page():
     return _render("docs_page.html", i18n._("docs.title"), "docs")
 
 
+SDK_DOC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "doc", "sdk")
+
+
+def _load_sdk_doc(doc_type):
+    """Load the bilingual guide (rendered to HTML) and the AI prompt (raw text)."""
+    import markdown
+    lang = i18n.get_lang()
+    guide_html = ""
+    for candidate in (f"{doc_type}.{lang}.md", f"{doc_type}.en.md"):
+        md_path = os.path.join(SDK_DOC_DIR, candidate)
+        if os.path.isfile(md_path):
+            md_text = open(md_path, encoding="utf-8").read()
+            guide_html = markdown.markdown(
+                md_text, extensions=["tables", "fenced_code", "toc"])
+            break
+    prompt_path = os.path.join(SDK_DOC_DIR, "prompts", f"{doc_type}.md")
+    prompt_text = ""
+    if os.path.isfile(prompt_path):
+        prompt_text = open(prompt_path, encoding="utf-8").read()
+    return guide_html, prompt_text
+
+
 @pages_bp.route("/docs/<doc_type>")
 def docs_detail_page(doc_type):
     from flask import redirect
     valid = {"parser": "docs.parser_title", "channel": "docs.channel_title", "template": "docs.template_title"}
     if doc_type not in valid:
         return redirect("/docs")
-    return _render("docs_detail.html", i18n._(valid[doc_type]), "docs", doc_type=doc_type)
+    guide_html, prompt_text = _load_sdk_doc(doc_type)
+    return _render("docs_detail.html", i18n._(valid[doc_type]), "docs",
+                   doc_type=doc_type, guide_html=guide_html, prompt_text=prompt_text)
 
 
 @pages_bp.route("/templates")
@@ -109,6 +135,7 @@ def settings_page():
         "dnd_start": db.get_config("dnd_start", "23:00"),
         "dnd_end": db.get_config("dnd_end", "07:00"),
         "cleanup": db.get_cleanup_config(),
+        "path_prefix": db.get_config("path_prefix", "in"),
     }
     translated_statuses = {s: i18n._(f"status.{s}") for s in db.MESSAGE_STATUSES}
     return _render("settings.html", i18n._("set.title"), "settings",

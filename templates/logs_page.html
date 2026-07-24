@@ -91,7 +91,7 @@ function showLogDetail(idx) {
 
 function copyLogDetail() {
     var btn = document.querySelector('#logDetailModal .btn-outline-primary');
-    navigator.clipboard.writeText(currentLogMessage).then(function(){
+    copyText(currentLogMessage).then(function(ok){ if(!ok) return;
         btn.innerHTML = '<i class="bi bi-check-lg"></i> ' + t("common.copied");
         setTimeout(function(){ btn.innerHTML = '<i class="bi bi-clipboard"></i> ' + t("common.copy"); }, 1500);
     });

@@ -706,7 +706,7 @@ log.logger.error(f"MyChannel: failed - {error_msg}")</code></pre>
 function copyCode(btn) {
   var pre = btn.parentElement.querySelector('pre code');
   var text = pre.innerText;
-  navigator.clipboard.writeText(text).then(function() {
+  copyText(text).then(function(ok) { if(!ok) return;
     btn.classList.add('copied');
     btn.innerHTML = '<i class="bi bi-check2"></i> {{ _("sdk.copied") }}';
     setTimeout(function() {

@@ -69,6 +69,20 @@ def get_sources():
     return [dict(r) for r in _conn().execute("SELECT * FROM sources ORDER BY id").fetchall()]
 
 
+def get_source_groups():
+    """获取顶层 Source（端口模式 + 路径模式组），不含子路由。"""
+    return [dict(r) for r in _conn().execute(
+        "SELECT * FROM sources WHERE parent_id IS NULL ORDER BY id"
+    ).fetchall()]
+
+
+def get_sub_routes(parent_id):
+    """获取某个 Source 组下的所有子路由。"""
+    return [dict(r) for r in _conn().execute(
+        "SELECT * FROM sources WHERE parent_id=? ORDER BY id", (parent_id,)
+    ).fetchall()]
+
+
 def get_source(source_id):
     r = _conn().execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
     return dict(r) if r else None
@@ -79,11 +93,27 @@ def get_source_by_port(port):
     return dict(r) if r else None
 
 
-def create_source(name, port, parser_id=None, enabled=1):
+def get_source_by_slug(slug):
+    """通过 slug 查找 Source 组。"""
+    r = _conn().execute("SELECT * FROM sources WHERE slug=?", (slug,)).fetchone()
+    return dict(r) if r else None
+
+
+def get_sub_route_by_path(parent_id, path):
+    """在指定 Source 组下查找匹配 path 的子路由。"""
+    r = _conn().execute(
+        "SELECT * FROM sources WHERE parent_id=? AND path=?", (parent_id, path)
+    ).fetchone()
+    return dict(r) if r else None
+
+
+def create_source(name, port=None, parser_id=None, enabled=1,
+                  slug=None, parent_id=None, path=""):
     try:
         c = _conn().execute(
-            "INSERT INTO sources (name, port, parser_id, enabled) VALUES (?,?,?,?)",
-            (name, port, parser_id, enabled)
+            """INSERT INTO sources (name, port, parser_id, enabled, slug, parent_id, path)
+               VALUES (?,?,?,?,?,?,?)""",
+            (name, port, parser_id, enabled, slug, parent_id, path)
         )
         _conn().commit()
         return c.lastrowid
@@ -94,7 +124,7 @@ def create_source(name, port, parser_id=None, enabled=1):
 def update_source(source_id, **kwargs):
     if not kwargs:
         return
-    allowed = {"name", "port", "parser_id", "enabled"}
+    allowed = {"name", "port", "parser_id", "enabled", "slug", "parent_id", "path"}
     sets = [f"{k}=?" for k in kwargs if k in allowed]
     vals = [kwargs[k] for k in kwargs if k in allowed]
     if not sets:
@@ -105,14 +135,29 @@ def update_source(source_id, **kwargs):
 
 
 def delete_source(source_id):
-    _conn().execute("DELETE FROM sources WHERE id=?", (source_id,))
-    _conn().commit()
+    """删除数据源，并级联清理其子路由与通道绑定。
+
+    schema 里 sources.parent_id / source_channels.source_id 虽声明了
+    ON DELETE CASCADE，但连接未开启 PRAGMA foreign_keys（SQLite 默认关闭），
+    级联不会生效，故在此显式删除，避免留下 parent_id 悬空的孤儿记录。
+    """
+    conn = _conn()
+    sub_ids = [r["id"] for r in conn.execute(
+        "SELECT id FROM sources WHERE parent_id=?", (source_id,)).fetchall()]
+    all_ids = [source_id] + sub_ids
+    ph = ",".join("?" * len(all_ids))
+    conn.execute(f"DELETE FROM source_channels WHERE source_id IN ({ph})", all_ids)
+    conn.execute(f"DELETE FROM sources WHERE id IN ({ph})", all_ids)
+    conn.commit()
 
 
-def upsert_source(sid, name, port, parser_id=None, enabled=1):
+def upsert_source(sid, name, port=None, parser_id=None, enabled=1,
+                  slug=None, parent_id=None, path=""):
     _conn().execute(
-        "INSERT OR REPLACE INTO sources (id, name, port, parser_id, enabled) VALUES (?,?,?,?,?)",
-        (sid, name, port, parser_id, enabled)
+        """INSERT OR REPLACE INTO sources
+           (id, name, port, parser_id, enabled, slug, parent_id, path)
+           VALUES (?,?,?,?,?,?,?,?)""",
+        (sid, name, port, parser_id, enabled, slug, parent_id, path)
     )
     _conn().commit()
 

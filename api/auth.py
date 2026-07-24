@@ -33,3 +33,10 @@ def login_action():
 def logout():
     session.clear()
     return redirect("/login")
+
+@auth_bp.route("/api/lang", methods=["POST"])
+def api_set_lang():
+    data = request.get_json(silent=True) or {}
+    lang = data.get("lang", "zh")
+    i18n.set_lang(lang)
+    return {"status": "ok", "lang": lang}

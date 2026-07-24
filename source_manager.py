@@ -44,10 +44,14 @@ def _calc_parser_hash(filename):
 
 # ── 全链路处理 ──────────────────────────────
 
-def process_message(source_id, raw_body: bytes, headers: dict, query_params: dict) -> tuple:
+def process_message(source_id, raw_body: bytes, headers: dict, query_params: dict,
+                    extra_fields: dict = None) -> tuple:
     """
     处理一条消息的全链路：记录 → 解析 → 路由 → 发送。
     每个步骤通过事件总线委托给对应引擎。
+
+    Args:
+        extra_fields: 额外字段，解析后合并到 msg 中（如 sub_path），供路由/模板使用。
 
     Returns:
         (overall_ok: bool, msg_body: dict|None)
@@ -71,6 +75,12 @@ def process_message(source_id, raw_body: bytes, headers: dict, query_params: dic
     parse_ok, msg = _extract_result(results)
     if not parse_ok:
         return False, None
+
+    # 2.5 合并额外字段（如路径路由的 sub_path）
+    if extra_fields and isinstance(msg, dict):
+        msg.update(extra_fields)
+    if isinstance(msg, dict):
+        msg["_trace_id"] = trace_id
 
     # 3. 路由（router_engine 监听 message.parsed）
     results = bus.emit(

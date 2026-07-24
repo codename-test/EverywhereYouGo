@@ -129,12 +129,7 @@ def _import_table(json_name: str, load_func, clear_func):
 
 
 def load_all():
-    """启动时加载配置。数据库为准，JSON 仅做导出备份。
-
-    - 数据库已有配置数据 → 以数据库为准，刷新 JSON 备份后返回
-    - 数据库为空且存在 JSON 配置 → 从 JSON 导入（首次迁移/恢复）
-    - 数据库为空且无 JSON 配置 → 从数据库导出初始 JSON
-    """
+    """启动时从 JSON 加载所有配置到 SQLite（先清空再导入）。"""
     import db
     # 确保表已创建（跨线程可见）
     db.init_db()
@@ -146,32 +141,15 @@ def load_all():
         create_source_channel, delete_source_channel,
     )
 
-    conn = db._conn()
-
-    # 数据库是否已有配置数据（任一配置表非空即视为已有数据）
-    row_total = 0
-    for _t in ("parsers", "sources", "channels", "templates", "source_channels"):
-        try:
-            row_total += conn.execute("SELECT COUNT(*) FROM %s" % _t).fetchone()[0]
-        except Exception:
-            pass
-
-    has_json = os.path.isfile(os.path.join(CONFIG_DIR, "parsers.json"))
-
-    if row_total > 0:
-        # 数据库为准：不从 JSON 覆盖，仅刷新 JSON 备份
-        log.logger.info("Config data found in DB, using database as source of truth; refreshing JSON backup...")
-        export_all()
-        return
-
-    # 数据库为空：无 JSON 配置则导出初始配置
-    if not has_json:
+    # 检查是否有 JSON 配置
+    if not os.path.isfile(os.path.join(CONFIG_DIR, "parsers.json")):
         log.logger.info("No config files found, exporting from SQLite...")
         export_all()
         return
 
-    # 数据库为空 + 有 JSON：从 JSON 导入（首次迁移/恢复）
-    log.logger.info("Empty database, loading config from JSON files...")
+    log.logger.info("Loading config from JSON files...")
+
+    conn = db._conn()
 
     # 按依赖顺序清空 + 重新导入（保留 id）
     # 1. parsers

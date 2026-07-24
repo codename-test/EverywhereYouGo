@@ -51,6 +51,10 @@ def create_app(source_mgr=None):
     def _auth_middleware():
         if request.path in _AUTH_WHITELIST or request.path.startswith("/static"):
             return
+        # Path routing endpoints bypass WebUI auth (webhook receivers)
+        prefix = getattr(app, "_path_prefix", "in")
+        if request.path.startswith(f"/{prefix}/") or request.path == f"/{prefix}":
+            return
         if not _is_authenticated():
             if request.path.startswith("/api/"):
                 return jsonify({"error": i18n._("err.unauthorized")}), 401

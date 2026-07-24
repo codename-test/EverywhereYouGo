@@ -127,13 +127,13 @@ class ListenerManager:
     def start_all(self):
         """启动所有已启用的数据源监听。"""
         for s in db.get_sources():
-            if s["enabled"]:
+            if s["enabled"] and s.get("port") and not s.get("parent_id"):
                 self.start_source(s["id"])
 
     def start_source(self, source_id):
         """启动单个数据源的 HTTP 监听。"""
         src = db.get_source(source_id)
-        if not src or not src["enabled"]:
+        if not src or not src["enabled"] or not src.get("port"):
             return
 
         if source_id in self._servers:

@@ -31,7 +31,7 @@ import version_checker  # 版本检查
 import worker           # 异步发送 worker
 from web_ui import run_web_ui, app as web_app
 
-VERSION = "1.1.0"
+VERSION = "1.2.1"
 AUTHOR = "codename-test"
 DESCRIPTION = "EverywhereYouGo (EGo) — 通用信息转发平台"
 
@@ -96,6 +96,10 @@ def init_ego():
     # 1.5 加载配置（JSON → SQLite）
     import config_manager
     config_manager.load_all()
+
+    # 1.6 注册路径路由（需要在 DB 初始化后读取前缀配置）
+    import path_router
+    path_router.register_routes(web_app)
 
     # 2. 应用日志等级
     log_level = db.get_config("log_level", "WARNING")

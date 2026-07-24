@@ -2,26 +2,53 @@
 {% block content %}
 <div class="page-header d-flex justify-content-between align-items-center mb-3">
     <h2><i class="bi bi-inbox"></i> {{ _("src.title") }}</h2>
-    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#sourceModal" onclick="resetSourceForm()">
-      <i class="bi bi-plus-lg"></i> {{ _("src.new") }}
-    </button>
+    <div class="btn-group">
+      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#sourceModal" onclick="resetSourceForm('port')">
+        <i class="bi bi-plus-lg"></i> {{ _("src.new") }}
+      </button>
+      <button class="btn btn-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown"></button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#sourceModal" onclick="resetSourceForm('port')"><i class="bi bi-ethernet"></i> {{ _("src.new_port") }}</a></li>
+        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#sourceModal" onclick="resetSourceForm('group')"><i class="bi bi-diagram-3"></i> {{ _("src.new_group") }}</a></li>
+      </ul>
+    </div>
 </div>
 
-<div id="sources-list"></div>
+<!-- Port Sources Section -->
+<div id="port-sources-section">
+  <h5 class="text-muted mb-2"><i class="bi bi-ethernet"></i> {{ _("src.port_title") }}</h5>
+  <div id="sources-list"></div>
+</div>
+
+<!-- Path Sources Section -->
+<div id="path-sources-section" class="mt-4">
+  <h5 class="text-muted mb-2"><i class="bi bi-signpost-split"></i> {{ _("src.group_title") }}</h5>
+  <div id="groups-list"></div>
+</div>
 
 <!-- Modal -->
 <div class="modal fade" id="sourceModal" tabindex="-1">
   <div class="modal-dialog modal-lg"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title">{{ _("src.config") }}</h5>
+    <div class="modal-header"><h5 class="modal-title" id="modalTitle">{{ _("src.config") }}</h5>
       <button class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
       <input type="hidden" id="src-id">
+      <input type="hidden" id="src-mode" value="port">
+      <input type="hidden" id="src-parent-id" value="">
       <div class="row g-3 mb-3">
         <div class="col-md-4"><label class="form-label">{{ _("src.name") }}</label>
           <input class="form-control" id="src-name"></div>
-        <div class="col-md-2"><label class="form-label">{{ _("src.port") }}</label>
+        <!-- Port field (port mode only) -->
+        <div class="col-md-2" id="field-port"><label class="form-label">{{ _("src.port") }}</label>
           <input class="form-control" type="number" id="src-port" min="1024" max="65535"></div>
-        <div class="col-md-6"><label class="form-label">{{ _("src.parser") }}</label>
+        <!-- Slug field (group mode only) -->
+        <div class="col-md-3" id="field-slug" style="display:none"><label class="form-label">{{ _("src.slug") }}</label>
+          <input class="form-control" id="src-slug" placeholder="{{ _('src.slug_placeholder') }}"></div>
+        <!-- Path field (subroute mode only) -->
+        <div class="col-md-3" id="field-path" style="display:none"><label class="form-label">{{ _("src.path") }}</label>
+          <input class="form-control" id="src-path" placeholder="{{ _('src.path_placeholder') }}"></div>
+        <!-- Parser (port + subroute mode) -->
+        <div class="col-md-5" id="field-parser"><label class="form-label">{{ _("src.parser") }}</label>
           <div class="input-group">
             <select class="form-select" id="src-parser"><option value="">{{ _("src.select_parser") }}</option>
               {% for p in parsers %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
@@ -29,6 +56,11 @@
             <button class="btn btn-outline-info btn-sm" type="button" onclick="showAvailKeys()" title="{{ _('src.variables_title') }}"><i class="bi bi-list-columns-reverse"></i> {{ _("src.variables") }}</button>
           </div>
         </div>
+      </div>
+      <!-- URL preview (group + subroute mode) -->
+      <div id="url-preview" class="mb-3" style="display:none">
+        <label class="form-label">{{ _("src.url_preview") }}</label>
+        <code class="d-block p-2 bg-light rounded" id="url-preview-text"></code>
       </div>
       <div id="avail-keys-panel" class="collapse mb-3">
         <div class="card card-body p-2" style="max-height:200px;overflow-y:auto;font-size:0.8rem;">
@@ -44,6 +76,8 @@
         <label class="form-check-label">{{ _("src.enabled") }}</label>
       </div>
 
+      <!-- Bindings section (port + subroute mode) -->
+      <div id="section-bindings">
       <hr><h6>{{ _("src.bindings") }} <button class="btn btn-outline-primary btn-sm ms-2" onclick="addBindingRow()"><i class="bi bi-plus"></i></button>
         <div class="row g-2 mt-1 mb-1">
           <div class="col-md-3"><small class="text-muted">{{ _("src.bind_channel") }}</small></div>
@@ -52,8 +86,12 @@
           <div class="col-md-1"><small class="text-muted">{{ _("src.priority") }}</small></div>
           <div class="col-md-1 text-center"><small class="text-muted">{{ _("src.urgent") }}</small></div>
           <div class="col-md-2 text-center"><small class="text-muted">{{ _("common.actions") }}</small></div>
+      </div>
       <div id="bindings-container"></div>
+      </div>
 
+      <!-- Samples section (port + subroute mode) -->
+      <div id="section-samples">
       <hr><h6>{{ _("src.samples") }} <button class="btn btn-outline-secondary btn-sm ms-2" onclick="refreshSamples()"><i class="bi bi-arrow-repeat"></i> {{ _("common.refresh") }}</button></h6>
       <div id="samples-list"><span class="text-muted">{{ _("src.no_samples") }}</span></div>
       <div id="parse-result" class="mt-2" style="display:none;"></div>
@@ -61,6 +99,7 @@
         <button class="btn btn-info btn-sm" onclick="testParse()"><i class="bi bi-play"></i> {{ _("src.test_parse") }}</button>
         <button class="btn btn-warning btn-sm ms-1" onclick="testPush()"><i class="bi bi-send"></i> {{ _("src.test_push") }}</button>
         <button class="btn btn-secondary btn-sm ms-1" onclick="copyAIPrompt()"><i class="bi bi-clipboard"></i> {{ _("src.copy_ai_prompt") }}</button>
+      </div>
       </div>
     </div>
     <div class="modal-footer">
@@ -81,47 +120,110 @@ let PARSERS = {{ parsers|tojson }};
 let CHANNELS = {{ channels|tojson }};
 let TEMPLATES = {{ templates|tojson }};
 let SC_BINDINGS = {{ sc|tojson }};
+let PATH_PREFIX = {{ path_prefix|tojson }};
 {% raw %}
 let samples = [];
 let editId = null;
+let formMode = 'port'; // 'port' | 'group' | 'subroute'
 
-function resetSourceForm() {
+function resetSourceForm(mode, parentId) {
+  formMode = mode || 'port';
   editId = null;
   document.getElementById('src-id').value = '';
+  document.getElementById('src-mode').value = formMode;
+  document.getElementById('src-parent-id').value = parentId || '';
   document.getElementById('src-name').value = '';
   document.getElementById('src-port').value = '';
+  document.getElementById('src-slug').value = '';
+  document.getElementById('src-path').value = '';
   document.getElementById('src-parser').value = '';
   document.getElementById('src-enabled').checked = true;
   document.getElementById('bindings-container').innerHTML = '';
   document.getElementById('samples-list').innerHTML = '<span class="text-muted">' + t("src.no_samples") + '</span>';
   document.getElementById('parse-result').style.display = 'none';
   samples = [];
+  applyFormMode();
 }
+
+function applyFormMode() {
+  let isPort = formMode === 'port';
+  let isGroup = formMode === 'group';
+  let isSub = formMode === 'subroute';
+  // Toggle fields
+  document.getElementById('field-port').style.display = isPort ? '' : 'none';
+  document.getElementById('field-slug').style.display = isGroup ? '' : 'none';
+  document.getElementById('field-path').style.display = isSub ? '' : 'none';
+  document.getElementById('field-parser').style.display = isGroup ? 'none' : '';
+  // Sections
+  document.getElementById('section-bindings').style.display = isGroup ? 'none' : '';
+  document.getElementById('section-samples').style.display = isGroup ? 'none' : '';
+  // URL preview
+  document.getElementById('url-preview').style.display = (isGroup || isSub) ? '' : 'none';
+  // Title
+  let title = t("src.config");
+  if (isGroup) title = t("src.group_config");
+  if (isSub) title = t("src.subroute_config");
+  document.getElementById('modalTitle').textContent = title;
+  updateUrlPreview();
+}
+
+function updateUrlPreview() {
+  let el = document.getElementById('url-preview-text');
+  let slug = document.getElementById('src-slug').value || '<slug>';
+  let path = document.getElementById('src-path').value;
+  if (formMode === 'group') {
+    el.textContent = 'POST /' + PATH_PREFIX + '/' + slug;
+  } else if (formMode === 'subroute') {
+    // Find parent slug
+    let pid = document.getElementById('src-parent-id').value;
+    let parent = SOURCES.find(s => s.id == pid);
+    let pslug = parent ? (parent.slug || '<slug>') : '<slug>';
+    el.textContent = 'POST /' + PATH_PREFIX + '/' + pslug + (path ? '/' + path : '');
+  }
+}
+
+// Live URL preview updates
+document.addEventListener('input', function(e) {
+  if (e.target.id === 'src-slug' || e.target.id === 'src-path') updateUrlPreview();
+});
+
 function loadSources() {
   fetch('/api/sources').then(r=>r.json()).then(data=>{
     SOURCES = data;
     renderSources();
+    renderGroups();
   });
 }
+
+// ── Port Sources Table (existing logic) ──
 let sourceSortKey = '';
 let sourceSortAsc = true;
 let sourceFilters = {name: '', port: '', parser: ''};
+
 function renderSources() {
-  let data = SOURCES.slice();
+  let data = SOURCES.filter(s => !s.slug && !s.parent_id);
+  let portSection = document.getElementById('port-sources-section');
+  if (!data.length && !SOURCES.filter(s=>s.slug).length) {
+    portSection.style.display = '';
+  } else if (!data.length) {
+    portSection.style.display = 'none';
+  } else {
+    portSection.style.display = '';
+  }
   // Apply filters
-  if (sourceFilters.name) data = data.filter(s => s.name.toLowerCase().includes(sourceFilters.name.toLowerCase()));
-  if (sourceFilters.port) data = data.filter(s => String(s.port).includes(sourceFilters.port));
-  if (sourceFilters.parser) data = data.filter(s => (s.parser_name||'').toLowerCase().includes(sourceFilters.parser.toLowerCase()));
-  // Apply sort
+  let filtered = data.slice();
+  if (sourceFilters.name) filtered = filtered.filter(s => s.name.toLowerCase().includes(sourceFilters.name.toLowerCase()));
+  if (sourceFilters.port) filtered = filtered.filter(s => String(s.port).includes(sourceFilters.port));
+  if (sourceFilters.parser) filtered = filtered.filter(s => (s.parser_name||'').toLowerCase().includes(sourceFilters.parser.toLowerCase()));
   if (sourceSortKey) {
-    data.sort((a,b) => {
+    filtered.sort((a,b) => {
       let va = a[sourceSortKey] || '';
       let vb = b[sourceSortKey] || '';
       if (typeof va === 'number' && typeof vb === 'number') return sourceSortAsc ? va - vb : vb - va;
       return sourceSortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
     });
   }
-  let sortIcon = (key) => sourceSortKey === key ? (sourceSortAsc ? ' ↑' : ' ↓') : '';
+  let sortIcon = (key) => sourceSortKey === key ? (sourceSortAsc ? ' \u2191' : ' \u2193') : '';
   let filterInput = (key, ph) => `<input class="form-control form-control-sm" placeholder="${ph}" value="${sourceFilters[key]||''}" oninput="sourceFilters['${key}']=this.value;renderSources();">`;
   let html = `<div class="table-responsive"><table class="table table-sm table-hover mb-0">
     <colgroup>
@@ -141,8 +243,8 @@ function renderSources() {
       <th>${filterInput('parser', t("src.search_parser"))}</th>
       <th></th><th></th><th></th><th></th>
     </tr></thead><tbody>`;
-  data.forEach(s=>{
-    let sc = SC_BINDINGS.filter(x=>x.source_id==s.id);
+  filtered.forEach(s=>{
+    let sc = s.channels || SC_BINDINGS.filter(x=>x.source_id==s.id);
     let n = sc.length || 1;
     let srcCells = `<td rowspan="${n}"><strong>${s.name}</strong></td>
       <td rowspan="${n}"><code>${s.port}</code></td>
@@ -187,61 +289,183 @@ function renderSources() {
     }
   });
   html += '</tbody></table></div>';
-  if(!data.length) html='<div class="text-muted p-3">'+t("src.no_sources")+'</div>';
+  if(!filtered.length) html='<div class="text-muted p-3">'+t("src.no_sources")+'</div>';
   document.getElementById('sources-list').innerHTML = html;
 }
+
+// ── Path Source Groups ──
+function renderGroups() {
+  let groups = SOURCES.filter(s => s.slug);
+  let section = document.getElementById('path-sources-section');
+  if (!groups.length) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  let html = '';
+  groups.forEach(g => {
+    let subs = g.sub_routes || [];
+    let statusBadge = `<span class="badge bg-${g.enabled?'success':'secondary'}">${g.enabled?t("common.running"):t("common.stopped")}</span>`;
+    let url = '/' + PATH_PREFIX + '/' + g.slug;
+    html += `<div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center py-2">
+        <div>
+          <strong><i class="bi bi-diagram-3"></i> ${g.name}</strong>
+          <code class="ms-2 small">${url}</code>
+          ${statusBadge}
+        </div>
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-outline-primary" onclick="resetSourceForm('subroute',${g.id});new bootstrap.Modal(document.getElementById('sourceModal')).show();" title="${t("src.add_subroute")}"><i class="bi bi-plus-lg"></i> ${t("src.add_subroute")}</button>
+          <button class="btn btn-outline-secondary" onclick="editSource(${g.id})"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-outline-info" onclick="exportItem('source',${g.id})" title="${t("common.export")}"><i class="bi bi-download"></i></button>
+          <button class="btn btn-outline-danger" onclick="deleteGroup(${g.id})"><i class="bi bi-trash"></i></button>
+        </div>
+      </div>
+      <div class="card-body p-0">`;
+    if (subs.length) {
+      html += `<table class="table table-sm table-hover mb-0">
+        <thead><tr>
+          <th style="width:15%">${t("common.name")}</th>
+          <th style="width:12%">${t("src.col_path")}</th>
+          <th style="width:14%">${t("dash.col_parser")}</th>
+          <th style="width:30%">${t("src.col_condition")}</th>
+          <th style="width:15%">${t("src.col_channel")}</th>
+          <th style="width:7%">${t("common.status")}</th>
+          <th style="width:7%"></th>
+        </tr></thead><tbody>`;
+      subs.forEach(sub => {
+        let sc = sub.channels || [];
+        let pathLabel = sub.path ? `<code>${sub.path}</code>` : '<span class="text-muted">'+t("src.path_root")+'</span>';
+        let subStatus = `<span class="badge bg-${sub.enabled?'success':'secondary'}">${sub.enabled?t("common.running"):t("common.stopped")}</span>`;
+        if (sc.length === 0) {
+          html += `<tr>
+            <td>${sub.name}</td>
+            <td>${pathLabel}</td>
+            <td>${sub.parser_name||'<span class="text-muted">'+t("common.none")+'</span>'}</td>
+            <td colspan="2" class="text-muted">${t("src.no_binding")}</td>
+            <td>${subStatus}</td>
+            <td class="text-nowrap">
+              <button class="btn btn-sm btn-outline-secondary" onclick="editSource(${sub.id})"><i class="bi bi-pencil"></i></button>
+              <button class="btn btn-sm btn-outline-danger" onclick="deleteSource(${sub.id})"><i class="bi bi-trash"></i></button>
+            </td></tr>`;
+        } else {
+          sc.forEach((b, i) => {
+            let ch = CHANNELS.find(y=>y.id==b.channel_id);
+            let chName = ch ? ch.name : '?';
+            let condText = b.condition_expr || '<span class="text-muted">'+t("src.no_condition")+'</span>';
+            let extras = '';
+            if (b.dedup_key_expr) extras += ' <span class="badge bg-info">'+t("src.dedup_badge")+'</span>';
+            if (b.urgent) extras += ' <span class="badge bg-warning text-dark">'+t("src.urgent_badge")+'</span>';
+            if (i === 0) {
+              html += `<tr>
+                <td rowspan="${sc.length}">${sub.name}</td>
+                <td rowspan="${sc.length}">${pathLabel}</td>
+                <td rowspan="${sc.length}">${sub.parser_name||'<span class="text-muted">'+t("common.none")+'</span>'}</td>
+                <td style="font-size:0.85em;word-break:break-all;">${condText}</td>
+                <td>${chName}${extras}</td>
+                <td rowspan="${sc.length}">${subStatus}</td>
+                <td rowspan="${sc.length}" class="text-nowrap">
+                  <button class="btn btn-sm btn-outline-secondary" onclick="editSource(${sub.id})"><i class="bi bi-pencil"></i></button>
+                  <button class="btn btn-sm btn-outline-danger" onclick="deleteSource(${sub.id})"><i class="bi bi-trash"></i></button>
+                </td></tr>`;
+            } else {
+              html += `<tr>
+                <td style="font-size:0.85em;word-break:break-all;">${condText}</td>
+                <td>${chName}${extras}</td></tr>`;
+            }
+          });
+        }
+      });
+      html += '</tbody></table>';
+    } else {
+      html += `<div class="p-3 text-muted">${t("src.no_subroutes")}</div>`;
+    }
+    html += '</div></div>';
+  });
+  document.getElementById('groups-list').innerHTML = html;
+}
+
+function deleteGroup(id) {
+  if(!confirm(t("src.confirm_delete_group"))) return;
+  fetch('/api/sources/'+id,{method:'DELETE'}).then(()=>loadSources());
+}
+
+// ── Edit / Save ──
 function editSource(id) {
   let s = SOURCES.find(x=>x.id==id);
+  if(!s) {
+    // Maybe it's a sub-route
+    for(let g of SOURCES) {
+      if(g.sub_routes) {
+        let sub = g.sub_routes.find(x=>x.id==id);
+        if(sub) { s = sub; s._parent = g; break; }
+      }
+    }
+  }
   if(!s) return;
   editId = id;
+  // Determine mode
+  if(s.slug && !s.parent_id) formMode = 'group';
+  else if(s.parent_id) formMode = 'subroute';
+  else formMode = 'port';
   document.getElementById('src-id').value = id;
+  document.getElementById('src-mode').value = formMode;
+  document.getElementById('src-parent-id').value = s.parent_id || (s._parent ? s._parent.id : '');
   document.getElementById('src-name').value = s.name;
-  document.getElementById('src-port').value = s.port;
+  document.getElementById('src-port').value = s.port || '';
+  document.getElementById('src-slug').value = s.slug || '';
+  document.getElementById('src-path').value = s.path || '';
   document.getElementById('src-parser').value = s.parser_id||'';
   document.getElementById('src-enabled').checked = s.enabled;
-  // 加载绑定
-  let bs = SC_BINDINGS.filter(x=>x.source_id==id);
-  let bc = document.getElementById('bindings-container');
-  bc.innerHTML = '';
-  bs.forEach(b=>addBindingRow(b));
-  // 样本
-  refreshSamples();
+  applyFormMode();
+  // Load bindings (port + subroute)
+  if(formMode !== 'group') {
+    let bs = s.channels || SC_BINDINGS.filter(x=>x.source_id==id);
+    let bc = document.getElementById('bindings-container');
+    bc.innerHTML = '';
+    bs.forEach(b=>addBindingRow(b));
+    refreshSamples();
+  }
   new bootstrap.Modal(document.getElementById('sourceModal')).show();
 }
+
 function deleteSource(id) {
   if(!confirm(t("src.confirm_delete"))) return;
   fetch('/api/sources/'+id,{method:'DELETE'}).then(()=>loadSources());
 }
+
 function saveSource() {
-  let data = {
-    name: document.getElementById('src-name').value,
-    port: parseInt(document.getElementById('src-port').value),
-    parser_id: document.getElementById('src-parser').value || null,
-    enabled: document.getElementById('src-enabled').checked ? 1 : 0
-  };
-  if(!data.name||!data.port) return alert(t("src.fill_name_port"));
+  let name = document.getElementById('src-name').value;
+  let data = { name: name, enabled: document.getElementById('src-enabled').checked ? 1 : 0 };
+  if(formMode === 'port') {
+    data.port = parseInt(document.getElementById('src-port').value);
+    data.parser_id = document.getElementById('src-parser').value || null;
+    if(!name || !data.port) return alert(t("src.fill_name_port"));
+  } else if(formMode === 'group') {
+    data.slug = document.getElementById('src-slug').value.trim();
+    data.port = null;
+    if(!name || !data.slug) return alert(t("src.fill_name_slug"));
+  } else if(formMode === 'subroute') {
+    data.path = document.getElementById('src-path').value.trim();
+    data.parent_id = parseInt(document.getElementById('src-parent-id').value);
+    data.parser_id = document.getElementById('src-parser').value || null;
+    data.port = null;
+    if(!name) return alert(t("src.fill_name"));
+  }
   let method, url;
   if(editId) { method='PUT'; url='/api/sources/'+editId; }
   else { method='POST'; url='/api/sources'; }
   fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
   .then(r=>r.json()).then(async res=>{
     if(res.error) return alert(res.error);
-    // 新建时把 editId 设回新 ID
     if(!editId && res.id) editId = res.id;
-    // 保存绑定
-    if(editId) await saveBindings(editId);
+    // Save bindings for port/subroute
+    if(formMode !== 'group' && editId) await saveBindings(editId);
     bootstrap.Modal.getInstance(document.getElementById('sourceModal')).hide();
-    // 刷新全部数据（包括绑定）
-    fetch('/api/sources').then(r=>r.json()).then(sources=>{
-      SOURCES = sources;
-      // 同时刷新 SC_BINDINGS
-      fetch('/api/sources/bindings').then(r=>r.json()).then(bindings=>{
-        SC_BINDINGS = bindings;
-        renderSources();
-      }).catch(()=>renderSources());
-    });
+    loadSources();
+    // Refresh SC_BINDINGS
+    fetch('/api/sources/bindings').then(r=>r.json()).then(bindings=>{ SC_BINDINGS = bindings; });
   });
 }
+
+// ── Bindings ──
 function addBindingRow(data) {
   data = data || {channel_id:'',template_id:'',condition_expr:'',priority:0,urgent:0,dedup_key_expr:'',dedup_window:3600};
   let bc = document.getElementById('bindings-container');
@@ -253,22 +477,20 @@ function addBindingRow(data) {
   let dedupKey = data.dedup_key_expr||'';
   let dedupWin = data.dedup_window||3600;
   let hasDedup = dedupKey ? true : false;
-  // 主行
   let mainRow = document.createElement('div');
   mainRow.className = 'row g-2 align-items-end';
   mainRow.innerHTML = `<div class="col-md-3"><select class="form-select form-select-sm ch-sel">${chOpts}</select></div>
     <div class="col-md-3"><select class="form-select form-select-sm tpl-sel">${tOpts}</select></div>
     <div class="col-md-2"><input class="form-control form-control-sm cond" placeholder="${t("src.cond_placeholder")}" value="${data.condition_expr||''}" title="${t("src.cond_title")}"></div>
     <div class="col-md-1"><input class="form-control form-control-sm pri" type="number" placeholder="${t("src.pri_placeholder")}" value="${data.priority||0}"></div>
-    <div class="col-md-1 text-center"><div class="form-check d-inline-block mt-1"><input class="form-check-input urgent-chk" type="checkbox" ${urgentChecked} title="${t("src.urgent_dnd_title")}"><label class="form-check-label"><small>🔥</small></label></div></div>
+    <div class="col-md-1 text-center"><div class="form-check d-inline-block mt-1"><input class="form-check-input urgent-chk" type="checkbox" ${urgentChecked} title="${t("src.urgent_dnd_title")}"><label class="form-check-label"><small>\ud83d\udd25</small></label></div></div>
     <div class="col-md-2">
       <div class="d-flex gap-1">
-        <button class="btn btn-sm btn-outline-info flex-grow-1" onclick="toggleDedup(this)" title="${t("src.dedup_config_title")}">${hasDedup?'⏱ '+dedupKey:t("src.dedup_btn")}</button>
+        <button class="btn btn-sm btn-outline-info flex-grow-1" onclick="toggleDedup(this)" title="${t("src.dedup_config_title")}">${hasDedup?'\u23f1 '+dedupKey:t("src.dedup_btn")}</button>
         <button class="btn btn-sm btn-outline-danger" onclick="this.closest('.binding-group').remove()">&times;</button>
       </div>
     </div>`;
   wrapper.appendChild(mainRow);
-  // 去重子行（默认折叠）
   let subRow = document.createElement('div');
   subRow.className = 'row g-2 mt-1';
   subRow.style.display = hasDedup ? 'flex' : 'none';
@@ -306,7 +528,6 @@ function saveBindings(sourceId) {
     items.push({channel_id:chId,template_id:tId,condition_expr:cond,priority:pri,urgent:urg,dedup_key_expr:dk,dedup_window:dw});
   });
   if(items.length===0) {
-    // 全部删除：仍需通知后端清空
     return fetch('/api/sources/'+sourceId+'/channels',{method:'POST',
       headers:{'Content-Type':'application/json'},body:'[]'}).then(r=>r.json());
   }
@@ -314,6 +535,8 @@ function saveBindings(sourceId) {
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify(items)}).then(r=>r.json());
 }
+
+// ── Samples & Test ──
 function refreshSamples() {
   let sid = editId||document.getElementById('src-id').value;
   if(!sid) return;
@@ -335,7 +558,7 @@ function refreshSamples() {
   });
 }
 function getActiveSample() {
-  let sel = document.querySelector('input[name=\"sampleSel\"]:checked');
+  let sel = document.querySelector('input[name="sampleSel"]:checked');
   if (!sel) return null;
   return samples[parseInt(sel.value)];
 }
@@ -348,14 +571,12 @@ function showAvailKeys() {
     let list = document.getElementById('avail-keys-list');
     let count = document.getElementById('avail-keys-count');
     if (res.content) {
-      // 从 return { ... } 块中提取 key
       let returnBlock = res.content.match(/return\s*\{([\s\S]*?)\}/);
       let keys = [];
       if (returnBlock) {
         let matches = returnBlock[1].matchAll(/"([^"]+)"/g);
         for (let m of matches) keys.push(m[1]);
       }
-      // 去重
       keys = [...new Set(keys)];
       count.textContent = keys.length + t("src.keys_count_suffix");
       list.innerHTML = keys.map(k =>
@@ -374,11 +595,7 @@ document.addEventListener('focusin', function(e) {
 });
 function insertVarToCondition(varName) {
   let groups = document.querySelectorAll('#bindings-container .binding-group');
-  if (groups.length === 0) {
-    alert(t("src.add_binding_first"));
-    return;
-  }
-  // 插入到当前激活的输入框（条件表达式或去重键）
+  if (groups.length === 0) { alert(t("src.add_binding_first")); return; }
   if (activeCondInput) {
     let start = activeCondInput.selectionStart;
     let end = activeCondInput.selectionEnd;
@@ -390,7 +607,6 @@ function insertVarToCondition(varName) {
     setTimeout(() => activeCondInput.classList.remove('bg-success', 'text-white'), 300);
     return;
   }
-  // 没有激活的输入框则提示
   alert(t("src.click_input_first"));
 }
 function testParse() {
@@ -437,32 +653,16 @@ function copyAIPrompt() {
   _copyToClipboard(prompt);
 }
 function _copyToClipboard(text) {
-  // 用 textarea + execCommand 实现自动复制（HTTP 下也有效）
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.left = '-9999px';
-    ta.style.top = '-9999px';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    ta.setSelectionRange(0, text.length);
-    const ok = document.execCommand('copy');
-    document.body.removeChild(ta);
+  copyText(text).then(function(ok) {
     if (ok) {
-      // 视觉反馈：闪烁绿色
       const btn = document.querySelector('.btn-secondary .bi-clipboard')?.closest('button');
       if (btn) { btn.classList.add('btn-success'); setTimeout(() => btn.classList.remove('btn-success'), 1000); }
-      return;
+    } else {
+      showManualCopyModal(text);
     }
-  } catch(e) {}
-  // fallback：弹手动复制框
-  showManualCopyModal(text);
+  });
 }
 function showManualCopyModal(text) {
-  // 当 execCommand 失败时，弹出一个 Bootstrap 模态框让用户手动复制
   let existing = document.getElementById('manual-copy-modal');
   if (existing) existing.remove();
   let div = document.createElement('div');
@@ -480,11 +680,9 @@ function showManualCopyModal(text) {
   document.body.appendChild(div);
   let modal = new bootstrap.Modal(div);
   modal.show();
-  // 自动全选
   let ta = div.querySelector('textarea');
   if (ta) { ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length); }
 }
-loadSources();
 
 function exportItem(type, id) {
   fetch('/api/export/' + type + '/' + id)
@@ -497,6 +695,8 @@ function exportItem(type, id) {
       a.click();
     });
 }
+
+loadSources();
 {% endraw %}
 </script>
 {% endblock %}
