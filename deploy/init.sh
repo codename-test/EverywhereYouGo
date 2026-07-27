@@ -84,11 +84,14 @@ case $DEPLOY_DIR in
         rm nginx.conf.bak
         mkdir -p certs
         echo "签发 Let's Encrypt 证书（需要 80 端口可用）..."
-        docker compose run --rm --service-ports certbot certonly --standalone \
+        docker run --rm -it \
+            -p 80:80 \
+            -v "$(pwd)/certs:/etc/letsencrypt" \
+            certbot/certbot certonly --standalone \
             -d "$DOMAIN" --email "$EMAIL" --agree-tos --no-eff-email
-        CERT_PATH=$(docker compose run --rm certbot find /etc/letsencrypt/live -name "fullchain.pem" | head -1 | xargs dirname)
-        docker compose run --rm certbot cp "$CERT_PATH/fullchain.pem" /certs/ego.crt
-        docker compose run --rm certbot cp "$CERT_PATH/privkey.pem" /certs/ego.key
+        # 复制证书到正确位置
+        cp "certs/live/$DOMAIN/fullchain.pem" certs/ego.crt
+        cp "certs/live/$DOMAIN/privkey.pem" certs/ego.key
         ;;
 esac
 
