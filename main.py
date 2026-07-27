@@ -29,9 +29,9 @@ from source_listener import ListenerManager
 import source_manager   # 编排层（保留向后兼容接口）
 import version_checker  # 版本检查
 import worker           # 异步发送 worker
-from web_ui import run_web_ui, app as web_app
+from web_ui import run_web_ui, has_ssl, ssl_enabled_by_env, app as web_app
 
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 AUTHOR = "codename-test"
 DESCRIPTION = "EverywhereYouGo (EGo) — 通用信息转发平台"
 
@@ -82,10 +82,11 @@ def dnd_queue_checker():
 
 def init_ego():
     """初始化 EGo 核心（数据库、ListenerManager、后台线程），返回 mgr。"""
-    # 0. 生成 SSL 证书（如果不存在）
-    cert_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gen_cert.py")
-    if os.path.isfile(cert_script):
-        subprocess.run([sys.executable, cert_script], capture_output=True)
+    # 0. 生成 SSL 证书（如果不存在）；EGO_SSL_ENABLED=0 时跳过
+    if ssl_enabled_by_env():
+        cert_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gen_cert.py")
+        if os.path.isfile(cert_script):
+            subprocess.run([sys.executable, cert_script], capture_output=True)
     # 1. 初始化数据库
     log.logger.info("Initializing database...")
     db.init_db()
@@ -170,9 +171,16 @@ def main():
 
     mgr = init_ego()
     web_port = int(os.getenv("WEB_PORT", "5000"))
-    log.logger.info(f"Web UI → http://0.0.0.0:{web_port}")
+    ssl_port = int(os.getenv("WEB_SSL_PORT", "5001"))
 
-    print(f"\n  \033[1;36m->  WebUI:  http://localhost:{web_port}\033[0m")
+    if has_ssl():
+        log.logger.info(f"Admin UI (HTTPS) → https://0.0.0.0:{ssl_port}")
+        log.logger.info(f"Webhook/Health (HTTP) → http://0.0.0.0:{web_port}")
+        print(f"\n  \033[1;36m->  Admin UI (HTTPS):       https://localhost:{ssl_port}\033[0m")
+        print(f"  \033[1;36m->  Webhook/Health (HTTP):  http://localhost:{web_port}\033[0m")
+    else:
+        log.logger.info(f"Web UI (HTTP) → http://0.0.0.0:{web_port}")
+        print(f"\n  \033[1;36m->  WebUI (HTTP):  http://localhost:{web_port}\033[0m")
     print()
 
     # 信号处理
@@ -186,7 +194,7 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
 
     try:
-        run_web_ui(web_port)
+        run_web_ui(web_port, ssl_port)
     except KeyboardInterrupt:
         log.logger.info("Shutting down...")
         worker.stop_workers()

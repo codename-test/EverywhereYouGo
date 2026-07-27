@@ -6,6 +6,8 @@ __pycache__/
 *.md
 build.py
 docker-compose.yml
+deploy/
+certs/
 .DS_Store
 *.db
 *.db-wal

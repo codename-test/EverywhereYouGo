@@ -1,4 +1,4 @@
-# EverywhereYouGo (EGo) v1.2.1
+# EverywhereYouGo (EGo) v1.2.2
 
 > 通用信息转发平台 — 数据 → 解析 → 路由 → 推送
 
@@ -7,15 +7,14 @@
 ## Docker 部署
 
 ```bash
+# 快速起步（自签名 HTTPS）
+cd deploy/default
 docker compose up -d
 ```
 
-或手动构建：
+> 更多部署形态（host 网络、Nginx + 手动证书、Nginx + Let's Encrypt 等）见 `deploy/` 目录下的 `README.md`（中文）和 `README.en.md`（英文）。
 
-```bash
-docker build -t ego:latest .
-docker run -d --name ego -p 5000:5000 -v ego_data:/app/data -v ego_config:/app/config ego:latest
-```
+启动后：管理页面 `https://<主机IP>:5001`（自签名证书，浏览器需放行）；Webhook 接收与健康检查走 `http://<主机IP>:5000`。
 
 ## 架构
 
@@ -57,7 +56,7 @@ EGO_AUTH_TOKEN=your-secret-token python3 main.py
 | `config/templates.json` | 推送模板 |
 | `config/bindings.json` | 渠道绑定（含条件表达式） |
 
-可直接编辑 JSON 后重启生效，也可通过 WebUI 管理。SQLite（`ego.db`）仅存运行时数据。
+可直接编辑 JSON 后重启生效，也可通过 WebUI 管理。系统设置（DND、日志级别等）和运行时数据（消息日志）存储在 SQLite（`ego.db`）中。
 
 ## 解析器
 
@@ -130,7 +129,9 @@ def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `WEB_PORT` | `5000` | WebUI 端口 |
+| `WEB_PORT` | `5000` | HTTP 端口（Webhook 接收 / 健康检查） |
+| `WEB_SSL_PORT` | `5001` | HTTPS 端口（管理页面，证书缺失时不启用） |
+| `EGO_SSL_ENABLED` | `1` | 设为 `0` 完全关闭内置 HTTPS（仅 HTTP，不跳转、不生成证书） |
 | `DB_PATH` | `ego.db` | 数据库路径 |
 | `LOG_LEVEL` | `INFO` | 日志等级 |
 | `EGO_AUTH_TOKEN` | *(空)* | 访问控制 Token |

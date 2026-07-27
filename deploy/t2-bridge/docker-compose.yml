@@ -1,0 +1,35 @@
+# T2 — Docker 内网（bridge 网络，内置自签名 HTTPS）
+# 场景：内网多容器协同。管理页面走 HTTPS（浏览器复制按钮等安全上下文 API 需要）；
+#       Webhook / 健康检查走 HTTP。
+# 访问：管理页面 https://<主机IP>:5001（自签名，浏览器需放行一次）；
+#       Webhook / 健康检查 http://<主机IP>:5000
+#       同网络容器内可用 http://ego:5000（webhook）或 https://ego:5001（管理）
+services:
+  ego:
+    image: codenametest/everywhereyougo:latest
+    container_name: ego
+    environment:
+      - TZ=Asia/Shanghai
+      - WEB_PORT=5000
+      - WEB_SSL_PORT=5001
+      - DB_PATH=/app/data/ego.db
+      - LOG_LEVEL=INFO
+    volumes:
+      - ego_data:/app/data
+      - ego_config:/app/config
+      - ego_certs:/app/certs       # 持久化自签名证书，重建容器后浏览器无需再次放行
+    ports:
+      - "5000:5000"
+      - "5001:5001"
+    networks:
+      - ego_net
+    restart: unless-stopped
+
+networks:
+  ego_net:
+    name: ego_net
+
+volumes:
+  ego_data:
+  ego_config:
+  ego_certs:

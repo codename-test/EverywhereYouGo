@@ -41,3 +41,9 @@ docker-compose.override.yml
 
 # Internal docs (not for git)
 doc/improvement.md
+-e 
+# 临时文件
+.trash/
+*.db-shm
+*.db-wal
+

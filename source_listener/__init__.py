@@ -108,8 +108,11 @@ class _HookHandler(BaseHTTPRequestHandler):
             super().handle_one_request()
         except TimeoutError:
             log.logger.warning(f"Source [{getattr(self.server, 'source_id', '?')}] Request timed out")
-        except Exception:
-            pass
+        except (BrokenPipeError, ConnectionResetError):
+            # 客户端提前断开连接，属正常现象，仅记调试日志
+            log.logger.debug(f"Source [{getattr(self.server, 'source_id', '?')}] Client disconnected")
+        except Exception as e:
+            log.logger.warning(f"Source [{getattr(self.server, 'source_id', '?')}] Request handling error: {e}")
 
     def log_message(self, format, *args):
         pass

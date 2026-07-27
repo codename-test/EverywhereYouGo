@@ -18,6 +18,24 @@ backup_bp = Blueprint("backup", __name__)
 PARSERS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "parsers")
 VERSION = "1.0.1"
 
+# 恢复时解压总大小上限（防 ZIP 炸弹撑爆磁盘/volume）
+MAX_RESTORE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
+def _safe_filename(fname):
+    """校验解压/导入用的文件名，防路径穿越（#22）。
+
+    合法备份内文件均为扁平结构（config/*.json、parsers/*.py），
+    因此拒绝空名、以点开头、含路径分隔符或 '..' 的文件名。
+    """
+    if not fname:
+        return False
+    if fname.startswith("."):
+        return False
+    if "/" in fname or "\\" in fname or ".." in fname:
+        return False
+    return True
+
 
 # ── Export helpers ──
 
@@ -130,18 +148,28 @@ def api_restore():
     if dry_run:
         return jsonify(result)
 
+    # 防 ZIP 炸弹：累计未压缩大小，超过上限即拒绝（#32）
+    total_size = 0
+    for name in config_files + parser_files:
+        total_size += zf.getinfo(name).file_size
+        if total_size > MAX_RESTORE_SIZE:
+            zf.close()
+            return jsonify({"ok": False, "error": i18n._("err.restore_too_large")})
+
     for name in config_files:
         if name.endswith(".json"):
-            target = os.path.join(CONFIG_DIR, name[len("config/"):])
-            os.makedirs(os.path.dirname(target), exist_ok=True)
-            with open(target, "wb") as f:
+            fname = os.path.basename(name[len("config/"):])
+            if not _safe_filename(fname):
+                continue
+            with open(os.path.join(CONFIG_DIR, fname), "wb") as f:
                 f.write(zf.read(name))
 
     for name in parser_files:
         if name.endswith(".py"):
-            target = os.path.join(PARSERS_DIR, name[len("parsers/"):])
-            os.makedirs(os.path.dirname(target), exist_ok=True)
-            with open(target, "wb") as f:
+            fname = os.path.basename(name[len("parsers/"):])
+            if not _safe_filename(fname):
+                continue
+            with open(os.path.join(PARSERS_DIR, fname), "wb") as f:
                 f.write(zf.read(name))
 
     zf.close()
@@ -266,7 +294,13 @@ def _import_execute(data, mode="insert"):
 
     existing_ids["parsers"] = {p["filename"]: p for p in db.get_parsers()}
     for p in data.get("parsers", []):
-        fn = p.get("filename", "")
+        fn = os.path.basename(p.get("filename", ""))
+        if not _safe_filename(fn):
+            summary["parsers"]["errors"] += 1
+            errors.append(i18n._("import.parser_error")
+                          .replace("{name}", p.get("filename", "?"))
+                          .replace("{error}", "unsafe filename"))
+            continue
         exist = existing_ids["parsers"].get(fn)
         try:
             if exist and mode == "insert":

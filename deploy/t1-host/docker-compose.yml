@@ -1,0 +1,28 @@
+# T1 — 裸机直连（host 网络，内置自签名 HTTPS）
+# 场景：家庭 / 内网调试。应用自动生成自签名证书；管理页面走 HTTPS
+#       （浏览器剪贴板等安全上下文 API 需要 HTTPS，复制按钮依赖它）。
+# 访问：管理页面 https://<主机IP>:5001（自签名，浏览器需放行一次）；
+#       Webhook / 健康检查 http://<主机IP>:5000
+# 注意：host 模式与主机共享端口；若 5000/5001 被占用（如路由器 miniupnpd 占 5000），
+#       请改 WEB_PORT / WEB_SSL_PORT。
+services:
+  ego:
+    image: codenametest/everywhereyougo:latest
+    container_name: ego
+    network_mode: host
+    environment:
+      - TZ=Asia/Shanghai
+      - WEB_PORT=5000
+      - WEB_SSL_PORT=5001
+      - DB_PATH=/app/data/ego.db
+      - LOG_LEVEL=INFO
+    volumes:
+      - ego_data:/app/data
+      - ego_config:/app/config
+      - ego_certs:/app/certs       # 持久化自签名证书，重建容器后浏览器无需再次放行
+    restart: unless-stopped
+
+volumes:
+  ego_data:
+  ego_config:
+  ego_certs:

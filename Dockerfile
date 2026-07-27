@@ -1,15 +1,16 @@
-# EGo — 通用信息转发平台 v1.2.1
+# EGo — 通用信息转发平台 v1.2.2
 FROM python:3.11-alpine3.18
 
 LABEL maintainer="EGo Team"
 
 ENV TZ=Asia/Shanghai LANG=zh_CN.UTF-8 PYTHONUNBUFFERED=1
 
-EXPOSE 5000
+# 5000 = HTTP（webhook/健康检查），5001 = HTTPS（管理页面）
+EXPOSE 5000 5001
 
 RUN set -eux && \
     apk --no-cache update && \
-    apk -U --no-cache add tzdata && \
+    apk -U --no-cache add tzdata openssl && \
     cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/Shanghai" > /etc/timezone && \
     mkdir -p /app/data /app/config /app/parsers
@@ -24,6 +25,7 @@ COPY . .
 VOLUME ["/app/data", "/app/config"]
 
 ENV WEB_PORT=5000
+ENV WEB_SSL_PORT=5001
 ENV DB_PATH=/app/data/ego.db
 ENV LOG_LEVEL=INFO
 

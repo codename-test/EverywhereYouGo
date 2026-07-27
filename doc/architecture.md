@@ -151,9 +151,19 @@ Session 24h 自动过期，`/api/health` 免认证。
 
 ---
 
-## SSL
+## SSL / 端口模型
 
-仅用于 Web UI 管理页面（浏览器不报不安全 + 剪贴板 API 可用）。Webhook 数据接收始终 HTTP。
+v1.2.2 起应用同时监听两个端口，按用途分流：
+
+| 端口 | 环境变量 | 默认 | 协议 | 用途 |
+|------|----------|------|------|------|
+| HTTP | `WEB_PORT` | 5000 | HTTP | Webhook 接收（`/in/...`）、`/api/health` 等机器间流量 |
+| HTTPS | `WEB_SSL_PORT` | 5001 | HTTPS | Web UI 管理页面 |
+
+- 管理页面被 HTTP 访问时 301 跳转到 HTTPS 端口（webhook / 健康检查不跳转）。
+- 启用 HTTPS 时会话 Cookie 追加 `Secure`（另含 `HttpOnly` + `SameSite=Lax`）。
+- 证书缺失时仅监听 HTTP 端口并告警（退化为单端口明文）。
+- `EGO_SSL_ENABLED=0` 完全关闭内置 HTTPS（跳过证书生成、仅 HTTP、不跳转）——T1/T2 无证书层级或反代终结 TLS 时使用。
 
 `gen_cert.py` 首次启动自动生成自签名证书，支持环境变量覆盖：
 - `EGO_SSL_DIR` — 证书目录
@@ -179,14 +189,18 @@ Session 24h 自动过期，`/api/health` 免认证。
 
 ## 部署架构
 
-| 层级 | 命名 | 网络模式 | HTTPS | 证书管理 | 推荐场景 |
-|------|------|----------|-------|----------|----------|
-| T1 | 裸机直连 | `host` | ❌ | 无 | 家庭/内网调试 |
-| T2 | Docker 内网 | `bridge` | ❌ | 无 | 容器间协同 |
-| T3 | 企业级部署 | `bridge` + Nginx | ✅ | 手动证书 | 正式生产环境 |
-| T4 | 懒人全自动 | `bridge` + Nginx + Certbot | ✅ | Let's Encrypt | 个人/小团队云端 |
+| 层级 | 命名 | 网络模式 | 管理页面 | 证书管理 | 推荐场景 |
+|------|------|----------|----------|----------|----------|
+| T1 | 裸机直连 | `host` | HTTPS 自签名 | 自动自签名 | 家庭/内网调试 |
+| T2 | Docker 内网 | `bridge` | HTTPS 自签名 | 自动自签名 | 容器间协同 |
+| T3 | 企业级部署 | `bridge` + Nginx | HTTPS 可信证书 | 手动证书 | 正式生产环境 |
+| T4 | 懒人全自动 | `bridge` + Nginx + Certbot | HTTPS 可信证书 | Let's Encrypt | 个人/小团队云端 |
+
+> 管理页面统一走 HTTPS：浏览器剪贴板 API（页面复制按钮）要求安全上下文。T1/T2 用应用内置自签名证书（`ego_certs` 卷持久化），Webhook / 健康检查始终 HTTP。
 
 **职责分工**：EGo 负责核心消息处理 + WebUI SSL + 5MB Body 防护。Nginx（T3/T4）负责 HTTPS 终结 + 认证 + 限流 + 来源鉴权。
+
+> 开箱即用的 Compose 配置统一见 `deploy/`（`default` / `t1-host` / `t2-bridge` / `t3-nginx` / `t4-certbot`），选用方式见 `deploy/README.md`。
 
 ---
 

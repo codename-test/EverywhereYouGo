@@ -1,5 +1,5 @@
 
-# EverywhereYouGo (EGo) v1.2.0
+# EverywhereYouGo (EGo) v1.2.2
 
 > Universal Message Forwarding Platform — Data → Parse → Route → Push
 
@@ -16,7 +16,7 @@ pip install -r requirements.txt
 python3 main.py
 ```
 
-Open `http://localhost:5000` to configure.
+Open `https://localhost:5001` for the admin UI (self-signed cert; accept the browser warning). Webhook receivers and the health check run over plain HTTP on `http://localhost:5000`.
 
 ## Architecture
 
@@ -43,9 +43,8 @@ Persistent configuration is stored as JSON files in `config/`:
 | `config/channels.json` | Push channel configs |
 | `config/templates.json` | Push templates |
 | `config/bindings.json` | Channel bindings (with condition expressions) |
-| `config/settings.json` | System settings (DND, log level) |
 
-Edit JSON directly and restart, or manage via WebUI. SQLite (`ego.db`) only stores runtime message logs.
+Edit JSON directly and restart, or manage via WebUI. System settings (DND, log level) and runtime data (message logs) are stored in SQLite (`ego.db`).
 
 ## Parser
 
@@ -81,22 +80,25 @@ Supports `and`, `or`, and parenthesized expressions:
 
 ## Deploy
 
-```bash
-pip install -r requirements.txt
-WEB_PORT=5000 python3 main.py
-```
-
 ### Docker
 
 ```bash
-docker run -d --name ego -p 5000:5000 -v ./ego_data:/app/data ghcr.io/codename-test/EverywhereYouGo/ego:latest
+# Quick start (self-signed HTTPS)
+cd deploy/default
+docker compose up -d
 ```
 
-## Env Variables
+> More deployment options (host network, Nginx + manual cert, Nginx + Let's Encrypt, etc.) are in the `deploy/` directory with `README.en.md` (English) and `README.md` (Chinese).
+
+After startup: admin UI at `https://<host-IP>:5001` (self-signed cert, accept the browser warning); webhook receivers and health check at `http://<host-IP>:5000`.
+
+### Env Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `WEB_PORT` | `5000` | WebUI port |
+| `WEB_PORT` | `5000` | HTTP port (webhook receivers / health check) |
+| `WEB_SSL_PORT` | `5001` | HTTPS port (admin UI; disabled if no cert) |
+| `EGO_SSL_ENABLED` | `1` | Set to `0` to fully disable built-in HTTPS (HTTP only, no redirect, no cert generation) |
 | `DB_PATH` | `ego.db` | Database path |
 | `LOG_LEVEL` | `INFO` | Log level |
 | `EGO_AUTH_TOKEN` | `""` | Bearer token for API auth (empty = no auth) |

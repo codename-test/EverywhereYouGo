@@ -4,6 +4,30 @@
 
 ---
 
+## v1.2.2（2026-07-26）
+
+### HTTP/HTTPS 双端口
+
+- 应用同时监听两个端口：HTTP（`WEB_PORT`，默认 5000）承载 Webhook 接收（`/in/...`）与 `/api/health`；HTTPS（`WEB_SSL_PORT`，默认 5001）承载管理页面。
+- 管理页面被 HTTP 访问时 301 跳转到 HTTPS 端口；webhook / 健康检查保持 HTTP。
+- 修复 Docker `HEALTHCHECK` 失败：健康检查改走 HTTP 端口（此前证书自动生成后服务仅 HTTPS，http 探针失败）。
+- Dockerfile / docker-compose 暴露双端口，新增 `WEB_SSL_PORT` 环境变量。
+
+### 可靠性与卫生加固
+
+- #25 数据库连接改为 `threading.local()` 每线程独立连接，修复全局单例 + `check_same_thread=False` 在并发下的 "recursive use of cursors" / 事务串扰隐患。
+- #29 `source_listener` 请求处理不再静默吞异常：客户端断开记 debug，其余错误记 warning。
+- #22 备份恢复 / 导入的文件写入用 `os.path.basename()` 压平 + `_safe_filename()` 校验，封堵路径穿越。
+- #32 备份恢复解压累计超过 10MB（`MAX_RESTORE_SIZE`）即整体拒绝，防 ZIP 炸弹。
+- #24 会话 Cookie 加固：`HttpOnly` + `SameSite=Lax`，启用 HTTPS 时追加 `Secure`（最小化 CSRF 缓解，内网自管理场景不引入完整 Flask-WTF）。
+- 新增 `tests/test_backup_hardening.py`（9 例）。
+
+### 文档
+
+- `doc/improvement.md` 结合"Docker 单容器 + WebUI 仅内网自管理"威胁模型重新分级，新增"部署上下文与威胁模型"一节。
+
+---
+
 ## v1.2.0（2026-07-21）
 
 ### 安全加固（Phase 0）

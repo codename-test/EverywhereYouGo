@@ -1,21 +1,15 @@
 {
-  "version": "1.2.1",
-  "release_date": "2026-07-21",
+  "version": "1.2.2",
+  "release_date": "2026-07-26",
   "url": "https://github.com/codename-test/EverywhereYouGo/releases/latest",
   "changelog": [
-    "异步队列架构（queue_backend + worker），HTTP 立即返回，后台消费",
-    "按通道粒度入队 + 3 次指数退避重试（5s/30s/2min）+ 死信队列",
-    "SQLite WAL 模式 + 进程崩溃后自动恢复 processing 任务",
-    "Jinja2 改用 SandboxedEnvironment，防 SSTI 注入",
-    "HTTP Body 限制 5MB（超限 413）+ 读取/整体超时（10s/60s）",
-    "Session 24h 过期 + 弱 Secret Key 启动告警",
-    "配置 JSON 文件锁（fcntl.flock）防并发写损坏",
-    "5 类配置 Schema 校验，缺字段记日志告警",
-    "DND 队列上限 10000 条，溢出 DISCARD 并告警",
-    "Parser 版本绑定（MD5 哈希），重发时检测解析器变更",
-    "/api/health 深度健康检查（SQLite/磁盘/配置/队列）",
-    "SSL 证书路径支持环境变量（EGO_SSL_DIR/EGO_SSL_CERT/EGO_SSL_KEY）",
-    "消息详情页展示 Trace ID + sent_at",
-    "测试用例从 51 扩展到 85（新增队列/配置/SSTI 测试）"
+    "HTTP/HTTPS 双端口：管理页面走 HTTPS(5001)，Webhook/健康检查走 HTTP(5000)",
+    "管理页面被 HTTP 访问时 301 自动跳转 HTTPS",
+    "修复 Docker 健康检查失败（健康检查改走 HTTP 端口）",
+    "数据库连接改 threading.local 每线程独立，修复并发隐患",
+    "备份恢复/导入封堵路径穿越（basename + 文件名校验）",
+    "备份恢复解压超 10MB 整体拒绝，防 ZIP 炸弹",
+    "会话 Cookie 加固：HttpOnly + SameSite=Lax，HTTPS 时追加 Secure",
+    "source_listener 请求异常不再静默吞掉，改记日志"
   ]
 }
