@@ -1,15 +1,12 @@
 {
-  "version": "1.2.2",
-  "release_date": "2026-07-26",
+  "version": "1.2.3",
+  "release_date": "2026-07-27",
   "url": "https://github.com/codename-test/EverywhereYouGo/releases/latest",
   "changelog": [
-    "HTTP/HTTPS 双端口：管理页面走 HTTPS(5001)，Webhook/健康检查走 HTTP(5000)",
-    "管理页面被 HTTP 访问时 301 自动跳转 HTTPS",
-    "修复 Docker 健康检查失败（健康检查改走 HTTP 端口）",
-    "数据库连接改 threading.local 每线程独立，修复并发隐患",
-    "备份恢复/导入封堵路径穿越（basename + 文件名校验）",
-    "备份恢复解压超 10MB 整体拒绝，防 ZIP 炸弹",
-    "会话 Cookie 加固：HttpOnly + SameSite=Lax，HTTPS 时追加 Secure",
-    "source_listener 请求异常不再静默吞掉，改记日志"
+    "部署配置重构：统一 deploy/ 目录五套环境，nginx 证书/端口标准化",
+    "EGO_SSL_DIR 参数一致性修复（api/web_ui/gen_cert 三处统一）",
+    "nginx 代理 301 跳转修复（检查 X-Forwarded-Proto 头）",
+    "T4 证书续期全自动（certbot deploy-hook + nginx 轮询 reload）",
+    "README 环境变量文档更新，配置持久化说明修正"
   ]
 }

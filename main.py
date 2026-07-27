@@ -31,7 +31,7 @@ import version_checker  # 版本检查
 import worker           # 异步发送 worker
 from web_ui import run_web_ui, has_ssl, ssl_enabled_by_env, app as web_app
 
-VERSION = "1.2.2"
+VERSION = "1.2.3"
 AUTHOR = "codename-test"
 DESCRIPTION = "EverywhereYouGo (EGo) — 通用信息转发平台"
 

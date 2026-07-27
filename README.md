@@ -1,4 +1,4 @@
-# EverywhereYouGo (EGo) v1.2.2
+# EverywhereYouGo (EGo) v1.2.3
 
 > 通用信息转发平台 — 数据 → 解析 → 路由 → 推送
 

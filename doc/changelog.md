@@ -4,6 +4,44 @@
 
 ---
 
+## v1.2.3（2026-07-27）
+
+### 部署配置重构
+
+- 统一 `deploy/` 目录结构：`default/`、`t1-host/`、`t2-bridge/`、`t3-nginx/`、`t4-certbot/` 五套环境配置。
+- 所有 compose 文件统一使用 `codenametest/everywhereyougo:latest` 镜像，移除 `build:` 块。
+- 删除根目录 `docker-compose.yml`，避免与 `deploy/` 下的配置混淆。
+
+### Nginx 配置标准化
+
+- T3/T4 nginx 证书统一为 `ego.crt` / `ego.key`，与 EGo 内置证书文件名一致。
+- nginx `proxy_pass` 统一指向 `http://ego:5000`，全流量透传，路径路由由 EGo 内部处理。
+- T3 暴露 5001 端口直通管理页面（自签名 HTTPS），内网访问无需经过 nginx。
+
+### 参数一致性修复
+
+- `EGO_SSL_DIR` 环境变量在 `api/__init__.py`、`web_ui.py`、`gen_cert.py` 三处统一生效。
+- 优先级：`EGO_SSL_CERT`/`EGO_SSL_KEY` > `EGO_SSL_DIR` > 默认 `./certs/`。
+
+### 反向代理兼容
+
+- `_https_redirect()` 检查 `X-Forwarded-Proto` 头，nginx 代理时不再触发 301 跳转到 5001。
+- 修复 nginx 反代管理页面被强转到 HTTPS 5001 的问题。
+
+### T4 证书续期全自动
+
+- certbot 续期成功后通过 `--deploy-hook` 自动复制证书到 `certs/` 目录。
+- nginx 容器每 60s 轮询检测证书文件 md5 变化，发现更新自动 `nginx -s reload`。
+- 全程无需人工干预，单 compose 跑起来后免维护。
+
+### 文档更新
+
+- `deploy/README.md` 和 `deploy/README.en.md` 同步更新，包含五套环境的完整使用说明。
+- 根目录 `README.md` 和 `README.en.md` 环境变量表格新增 `EGO_SSL_DIR`/`EGO_SSL_CERT`/`EGO_SSL_KEY`。
+- 配置持久化说明修正：系统设置（DND、日志级别）存储在 SQLite `system_config` 表，非 JSON 文件。
+
+---
+
 ## v1.2.2（2026-07-26）
 
 ### HTTP/HTTPS 双端口
@@ -25,6 +63,35 @@
 ### 文档
 
 - `doc/improvement.md` 结合"Docker 单容器 + WebUI 仅内网自管理"威胁模型重新分级，新增"部署上下文与威胁模型"一节。
+
+---
+
+## v1.2.1（2026-07-24）
+
+### 路径路由
+
+- 新增 `path_router.py`：数据源支持按 URL 路径分流（`/in/emby/`、`/in/jellyfin/` 等），一个端口接收多个媒体服务器的 Webhook。
+- 路径前缀在数据源配置中指定，请求到达时自动匹配对应解析器。
+
+### SDK 文档体系
+
+- 新增 `doc/sdk/` 目录，包含通道（channel）、解析器（parser）、模板（template）三类 SDK 的中英文开发指南。
+- 每类文档包含：概念说明、字段定义、示例代码、最佳实践。
+- WebUI 文档详情页改为从 Markdown 渲染，支持在线编辑和预览。
+
+### 部署架构文档
+
+- 新增 `doc/architecture.md`：四层部署模型（T1-T4），从单机 host 网络到 Nginx + Let's Encrypt 全自动。
+- 新增 `doc/roadmap.md`：改进计划与优先级。
+
+### 其他改进
+
+- Dockerfile 重构：多阶段构建优化，镜像体积减小。
+- `i18n.py` 增强：支持更多翻译键和 fallback 逻辑。
+- `db/queries.py` / `db/schema.py`：新增查询方法和字段。
+- `api/sources.py`：数据源管理 API 增强。
+- `templates/sources_page.html`：数据源页面 UI 改进。
+- 新增 `tests/test_source_cascade.py`：数据源级联删除测试。
 
 ---
 

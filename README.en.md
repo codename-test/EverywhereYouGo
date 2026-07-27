@@ -1,5 +1,5 @@
 
-# EverywhereYouGo (EGo) v1.2.2
+# EverywhereYouGo (EGo) v1.2.3
 
 > Universal Message Forwarding Platform — Data → Parse → Route → Push
 
