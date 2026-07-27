@@ -43,6 +43,17 @@ docker compose up -d
 
 ### T3 (Nginx + Manual Cert)
 
+**One-click deployment:**
+
+```bash
+curl -O https://raw.githubusercontent.com/codename-test/EverywhereYouGo/main/deploy/init.sh
+chmod +x init.sh
+./init.sh
+# Select option 4, follow prompts for domain and certificate paths
+```
+
+**Manual deployment (for customization):**
+
 ```bash
 cd deploy/t3-nginx
 mkdir -p certs
@@ -54,6 +65,17 @@ docker compose up -d
 Access `https://<domain-or-IP>/`. Nginx terminates TLS on 443 (your cert), proxies all traffic to EGo's HTTP 5000. Path routing is handled internally by EGo — change `path_prefix` in the UI, nginx needs no changes. Port 80 automatically redirects to 443.
 
 ### T4 (Nginx + Certbot Auto)
+
+**One-click deployment:**
+
+```bash
+curl -O https://raw.githubusercontent.com/codename-test/EverywhereYouGo/main/deploy/init.sh
+chmod +x init.sh
+./init.sh
+# Select option 5, follow prompts for domain and email
+```
+
+**Manual deployment (for customization):**
 
 ```bash
 cd deploy/t4-certbot

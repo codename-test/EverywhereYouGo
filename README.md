@@ -6,13 +6,18 @@
 
 ## Docker 部署
 
+**一键部署（推荐）：**
+
 ```bash
-# 快速起步（自签名 HTTPS）
-cd deploy/default
-docker compose up -d
+curl -O https://raw.githubusercontent.com/codename-test/EverywhereYouGo/main/deploy/init.sh
+chmod +x init.sh
+./init.sh
+# 按提示选择部署模式
 ```
 
-> 更多部署形态（host 网络、Nginx + 手动证书、Nginx + Let's Encrypt 等）见 `deploy/` 目录下的 `README.md`（中文）和 `README.en.md`（英文）。
+支持 5 种部署模式：default（快速起步）、t1-host（host 网络）、t2-bridge（bridge 网络）、t3-nginx（Nginx + 手动证书）、t4-certbot（Nginx + Let's Encrypt 全自动证书）。
+
+> 更多部署形态说明见 `deploy/` 目录下的 `README.md`（中文）和 `README.en.md`（英文）。
 
 启动后：管理页面 `https://<主机IP>:5001`（自签名证书，浏览器需放行）；Webhook 接收与健康检查走 `http://<主机IP>:5000`。
 

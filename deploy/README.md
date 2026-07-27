@@ -43,6 +43,17 @@ docker compose up -d
 
 ### T3（Nginx + 手动证书）
 
+**一键部署：**
+
+```bash
+curl -O https://raw.githubusercontent.com/codename-test/EverywhereYouGo/main/deploy/init.sh
+chmod +x init.sh
+./init.sh
+# 选择选项 4，按提示输入域名和证书路径
+```
+
+**手动部署（如需自定义）：**
+
 ```bash
 cd deploy/t3-nginx
 mkdir -p certs
@@ -55,6 +66,17 @@ docker compose up -d
 路径路由由 EGo 内部处理（用户在前端改 path_prefix，nginx 无需改动）。80 自动跳 443。
 
 ### T4（Nginx + Certbot 自动证书）
+
+**一键部署：**
+
+```bash
+curl -O https://raw.githubusercontent.com/codename-test/EverywhereYouGo/main/deploy/init.sh
+chmod +x init.sh
+./init.sh
+# 选择选项 5，按提示输入域名和邮箱
+```
+
+**手动部署（如需自定义）：**
 
 ```bash
 cd deploy/t4-certbot

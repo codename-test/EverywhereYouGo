@@ -78,13 +78,18 @@ Supports `and`, `or`, and parenthesized expressions:
 
 ### Docker
 
+**One-click deployment (recommended):**
+
 ```bash
-# Quick start (self-signed HTTPS)
-cd deploy/default
-docker compose up -d
+curl -O https://raw.githubusercontent.com/codename-test/EverywhereYouGo/main/deploy/init.sh
+chmod +x init.sh
+./init.sh
+# Follow prompts to select deployment mode
 ```
 
-> More deployment options (host network, Nginx + manual cert, Nginx + Let's Encrypt, etc.) are in the `deploy/` directory with `README.en.md` (English) and `README.md` (Chinese).
+Supports 5 deployment modes: default (quick start), t1-host (host network), t2-bridge (bridge network), t3-nginx (Nginx + manual cert), t4-certbot (Nginx + Let's Encrypt auto cert).
+
+> More deployment options are in the `deploy/` directory with `README.en.md` (English) and `README.md` (Chinese).
 
 After startup: admin UI at `https://<host-IP>:5001` (self-signed cert, accept the browser warning); webhook receivers and health check at `http://<host-IP>:5000`.
 
