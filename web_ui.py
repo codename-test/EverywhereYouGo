@@ -63,13 +63,25 @@ def run_web_ui(port: int = 5000, ssl_port: int = 5001):
     """由 main.py 调用，启动 Flask 开发服务器。
 
     - 有证书：HTTP 跑在 `port`（webhook/健康检查），HTTPS 跑在 `ssl_port`（管理页面）。
-    - 无证书：仅 HTTP 跑在 `port`，并告警。
+    - 无证书：HTTP 跑在 `port`（webhook/健康检查），HTTP 也跑在 `ssl_port`（管理页面，不加密）。
     """
     ssl_ctx = _ssl_context()
     if ssl_ctx is None:
         import log
-        log.logger.warning("SSL cert not found, serving HTTP only on port %s "
-                           "(admin UI will not be encrypted).", port)
+        log.logger.warning("SSL cert not found, serving HTTP on both ports %s and %s "
+                           "(admin UI will not be encrypted).", port, ssl_port)
+        
+        # 无证书时，ssl_port 也启动 HTTP 服务
+        http_thread = threading.Thread(
+            target=run_simple,
+            args=("0.0.0.0", ssl_port, app),
+            kwargs={"threaded": True, "use_reloader": False},
+            daemon=True,
+            name="http-admin-server",
+        )
+        http_thread.start()
+        
+        # 主线程跑 webhook/health
         run_simple("0.0.0.0", port, app, threaded=True, use_reloader=False)
         return
 

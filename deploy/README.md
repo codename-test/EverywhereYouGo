@@ -67,6 +67,10 @@ docker compose up -d
 
 ### T4（Nginx + acme.sh 自动证书）
 
+**证书分离设计：**
+- nginx 443: 使用 `certs/ego.crt` + `ego.key`（Let's Encrypt 证书）
+- EGo 5001: 使用 `certs/ego-selfsigned.crt` + `ego-selfsigned.key`（自签名证书）
+
 **一键部署：**
 
 ```bash
@@ -95,7 +99,7 @@ docker compose exec acme acme.sh --issue --webroot /var/www/acme -d your.domain 
 CF_Token=your_token docker compose up -d
 docker compose exec acme acme.sh --issue --dns dns_cf -d your.domain --server letsencrypt
 
-# 复制证书到正确位置
+# 复制证书到正确位置（Let's Encrypt 证书给 nginx）
 docker compose exec acme cp /acme.sh/your.domain/fullchain.cer /certs/ego.crt
 docker compose exec acme cp /acme.sh/your.domain/your.domain.key /certs/ego.key
 ```

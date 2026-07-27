@@ -66,6 +66,10 @@ Access `https://<domain-or-IP>/`. Nginx terminates TLS on 443 (your cert), proxi
 
 ### T4 (Nginx + acme.sh Auto)
 
+**Certificate separation design:**
+- nginx 443: uses `certs/ego.crt` + `ego.key` (Let's Encrypt certificate)
+- EGo 5001: uses `certs/ego-selfsigned.crt` + `ego-selfsigned.key` (self-signed certificate)
+
 **One-click deployment:**
 
 ```bash
@@ -94,7 +98,7 @@ docker compose exec acme acme.sh --issue --webroot /var/www/acme -d your.domain 
 CF_Token=your_token docker compose up -d
 docker compose exec acme acme.sh --issue --dns dns_cf -d your.domain --server letsencrypt
 
-# Copy certificates to correct location
+# Copy certificates to correct location (Let's Encrypt cert for nginx)
 docker compose exec acme cp /acme.sh/your.domain/fullchain.cer /certs/ego.crt
 docker compose exec acme cp /acme.sh/your.domain/your.domain.key /certs/ego.key
 ```
