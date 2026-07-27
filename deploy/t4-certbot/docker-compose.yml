@@ -1,6 +1,10 @@
 # T4 — 懒人全自动（bridge + Nginx + acme.sh，Let's Encrypt）
 # 场景：个人 / 小团队云端，拥有公网域名。自动签发并续期免费证书。
 #
+# 证书分离设计：
+#   - nginx 443: 使用 certs/ego.crt + ego.key（Let's Encrypt 证书）
+#   - EGo 5001:  使用 certs/ego-selfsigned.crt + ego-selfsigned.key（自签名证书）
+#
 # 默认使用 webroot 模式（需要 80 端口），也支持 Cloudflare DNS API 验证。
 #
 # 方式一：webroot 模式（默认，需要域名解析到本机公网 IP）
@@ -23,7 +27,8 @@ services:
       - WEB_SSL_PORT=5001
       - DB_PATH=/app/data/ego.db
       - LOG_LEVEL=INFO
-      - EGO_SSL_DIR=/app/certs
+      - EGO_SSL_CERT=/app/certs/ego-selfsigned.crt
+      - EGO_SSL_KEY=/app/certs/ego-selfsigned.key
     volumes:
       - ego_data:/app/data
       - ego_config:/app/config
