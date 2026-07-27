@@ -146,6 +146,10 @@ case $DEPLOY_DIR in
             cp "$HOME/.acme.sh/$DOMAIN/fullchain.cer" certs/ego.crt
             cp "$HOME/.acme.sh/$DOMAIN/$DOMAIN.key" certs/ego.key
         fi
+        
+        # 生成自签名证书给 EGo 5001 端口使用
+        echo "生成自签名证书给 EGo..."
+        openssl req -x509 -newkey rsa:2048 -keyout certs/ego-selfsigned.key -out certs/ego-selfsigned.crt -days 365 -nodes -subj "/CN=$DOMAIN"
         ;;
 esac
 
