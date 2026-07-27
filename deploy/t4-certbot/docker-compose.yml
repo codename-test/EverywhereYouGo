@@ -48,7 +48,25 @@ services:
     networks:
       - ego_net
     restart: unless-stopped
-    entrypoint: /bin/sh -c '(last_md5=""; while true; do sleep 60; if [ -f /etc/nginx/certs/ego.crt ] && [ -f /etc/nginx/certs/ego.key ]; then current_md5=$$(md5sum /etc/nginx/certs/ego.crt /etc/nginx/certs/ego.key 2>/dev/null | md5sum); if [ -n "$$last_md5" ] && [ "$$current_md5" != "$$last_md5" ]; then nginx -s reload; fi; last_md5="$$current_md5"; fi; done) & nginx -g "daemon off;"'
+    # 轮询检测证书变化，自动 reload（每 60s 检查一次）
+    entrypoint: /bin/sh -c '
+      # 后台任务：检测证书文件变化
+      (
+        last_md5=""
+        while true; do
+          sleep 60
+          if [ -f /etc/nginx/certs/ego.crt ] && [ -f /etc/nginx/certs/ego.key ]; then
+            current_md5=$$(md5sum /etc/nginx/certs/ego.crt /etc/nginx/certs/ego.key 2>/dev/null | md5sum)
+            if [ -n "$$last_md5" ] && [ "$$current_md5" != "$$last_md5" ]; then
+              nginx -s reload
+            fi
+            last_md5="$$current_md5"
+          fi
+        done
+      ) &
+      # 前台启动 nginx
+      nginx -g "daemon off;"
+    '
 
   certbot:
     image: certbot/certbot
