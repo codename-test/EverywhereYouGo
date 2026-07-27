@@ -8,7 +8,7 @@ All Docker Compose configs are in this directory. `default/` is the recommended 
 | T1 | `t1-host/` | `host` | HTTPS self-signed | Auto-generated | Home / LAN debugging, direct host ports |
 | T2 | `t2-bridge/` | `bridge` | HTTPS self-signed | Auto-generated | Multi-container LAN, service name access |
 | T3 | `t3-nginx/` | `bridge` + Nginx | HTTPS trusted cert | Manual | Production with existing cert |
-| T4 | `t4-certbot/` | `bridge` + Nginx + Certbot | HTTPS trusted cert | Let's Encrypt auto | Public domain, fully automated |
+| T4 | `t4-certbot/` | `bridge` + Nginx + acme.sh | HTTPS trusted cert | Let's Encrypt auto | Public domain, fully automated |
 
 ## Why HTTPS for the Admin UI
 
@@ -64,7 +64,7 @@ docker compose up -d
 
 Access `https://<domain-or-IP>/`. Nginx terminates TLS on 443 (your cert), proxies all traffic to EGo's HTTP 5000. Path routing is handled internally by EGo — change `path_prefix` in the UI, nginx needs no changes. Port 80 automatically redirects to 443.
 
-### T4 (Nginx + Certbot Auto)
+### T4 (Nginx + acme.sh Auto)
 
 **One-click deployment:**
 
@@ -72,23 +72,31 @@ Access `https://<domain-or-IP>/`. Nginx terminates TLS on 443 (your cert), proxi
 curl -O https://raw.githubusercontent.com/codename-test/EverywhereYouGo/main/deploy/init.sh
 chmod +x init.sh
 ./init.sh
-# Select option 5, follow prompts for domain and email
+# Select option 5, follow prompts for domain, email, and verification method
 ```
+
+Supports two verification methods:
+- **webroot mode** (default): Requires port 80, domain must resolve to this server's public IP
+- **Cloudflare DNS API mode**: No port 80 required, needs Cloudflare API Token
 
 **Manual deployment (for customization):**
 
 ```bash
 cd deploy/t4-certbot
-# 1) First issue with standalone (nginx not running yet, certbot occupies port 80 temporarily)
-mkdir certs
-docker compose run --rm --service-ports certbot certonly --standalone \
-  -d your.domain --email you@example.com --agree-tos --no-eff-email
-# 2) Replace all your.domain in nginx.conf with your actual domain
-# 3) Copy the issued cert to certs/ directory
-docker compose run --rm certbot cp /etc/letsencrypt/live/your.domain/fullchain.pem /certs/ego.crt
-docker compose run --rm certbot cp /etc/letsencrypt/live/your.domain/privkey.pem   /certs/ego.key
-# 4) Start the full stack
+mkdir -p certs
+echo "your.domain" > certs/.domain
+
+# Method 1: webroot mode (requires port 80)
 docker compose up -d
+docker compose exec acme acme.sh --issue --webroot /var/www/acme -d your.domain --server letsencrypt
+
+# Method 2: Cloudflare DNS API mode (no port 80 required)
+CF_Token=your_token docker compose up -d
+docker compose exec acme acme.sh --issue --dns dns_cf -d your.domain --server letsencrypt
+
+# Copy certificates to correct location
+docker compose exec acme cp /acme.sh/your.domain/fullchain.cer /certs/ego.crt
+docker compose exec acme cp /acme.sh/your.domain/your.domain.key /certs/ego.key
 ```
 
-The `certbot` container auto-renews every 12 hours (webroot mode). After successful renewal, certificates are automatically copied to `certs/` directory. The nginx container polls for certificate changes every 60 seconds and automatically reloads when updates are detected — fully automated, no manual intervention required.
+The `acme.sh` container auto-renews every 12 hours. After successful renewal, certificates are automatically copied to `certs/` directory. The nginx container polls for certificate changes every 60 seconds and automatically reloads when updates are detected — fully automated, no manual intervention required.

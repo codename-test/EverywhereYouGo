@@ -1,17 +1,16 @@
-# T4 — 懒人全自动（bridge + Nginx + Certbot，Let's Encrypt）
+# T4 — 懒人全自动（bridge + Nginx + acme.sh，Let's Encrypt）
 # 场景：个人 / 小团队云端，拥有公网域名。自动签发并续期免费证书。
-# 前置：1) 域名已解析到本机公网 IP  2) 放通 80/443 端口
 #
-# 首次签发（先不要起 nginx，用 standalone 占用 80 端口签发一次）：
-#   docker compose run --rm --service-ports certbot certonly --standalone \
-#     -d your.domain --email you@example.com --agree-tos --no-eff-email
-# 然后把 nginx.conf 里的 your.domain 改成你的域名，
-# 再复制证书到 certs/ 目录：
-#   cp /var/lib/docker/volumes/ego_certbot_conf/_data/live/your.domain/fullchain.pem certs/ego.crt
-#   cp /var/lib/docker/volumes/ego_certbot_conf/_data/live/your.domain/privkey.pem   certs/ego.key
-# 最后：
+# 默认使用 webroot 模式（需要 80 端口），也支持 Cloudflare DNS API 验证。
+#
+# 方式一：webroot 模式（默认，需要域名解析到本机公网 IP）
 #   docker compose up -d
-# 之后 certbot 容器会每 12h 续期，续期后需手动 cp 到 certs/（或用 renewal hook 自动化）。
+#
+# 方式二：Cloudflare DNS API 模式（不需要 80 端口）
+#   设置环境变量 CF_Token 后启动：
+#   CF_Token=your_token docker compose up -d
+#
+# 之后 acme.sh 容器会每 12h 自动续期，nginx 每 60s 检测证书变化并自动 reload。
 services:
   ego:
     image: codenametest/everywhereyougo:latest
@@ -44,23 +43,40 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./certs:/etc/nginx/certs:ro
-      - certbot_www:/var/www/certbot:ro
+      - acme_www:/var/www/acme:ro
     networks:
       - ego_net
     restart: unless-stopped
     entrypoint: /bin/sh -c '(last_md5=""; while true; do sleep 60; if [ -f /etc/nginx/certs/ego.crt ] && [ -f /etc/nginx/certs/ego.key ]; then current_md5=$$(md5sum /etc/nginx/certs/ego.crt /etc/nginx/certs/ego.key 2>/dev/null | md5sum); if [ -n "$$last_md5" ] && [ "$$current_md5" != "$$last_md5" ]; then nginx -s reload; fi; last_md5="$$current_md5"; fi; done) & nginx -g "daemon off;"'
 
-  certbot:
-    image: certbot/certbot
-    container_name: ego-certbot
+  acme:
+    image: neilpang/acme.sh
+    container_name: ego-acme
+    environment:
+      - CF_Token=${CF_Token:-}
     volumes:
-      - certbot_www:/var/www/certbot
-      - certbot_conf:/etc/letsencrypt
-      - ./certs:/certs:rw              # 续期后自动复制证书到此目录
-    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --deploy-hook \"cp /etc/letsencrypt/live/*/fullchain.pem /certs/ego.crt && cp /etc/letsencrypt/live/*/privkey.pem /certs/ego.key && echo Certificate renewed and copied to certs/\"; sleep 12h & wait $${!}; done'"
+      - acme_www:/var/www/acme
+      - acme_conf:/acme.sh
+      - ./certs:/certs:rw
     networks:
       - ego_net
     restart: unless-stopped
+    entrypoint: /bin/sh -c '
+      trap exit TERM;
+      if [ -n "$$CF_Token" ]; then
+        echo "Using Cloudflare DNS API mode";
+        while :; do
+          acme.sh --issue --dns dns_cf -d $$(cat /certs/.domain 2>/dev/null || echo "your.domain") --server letsencrypt --deploy-hook "cp /certs/$$(cat /certs/.domain 2>/dev/null || echo "your.domain")/fullchain.cer /certs/ego.crt && cp /certs/$$(cat /certs/.domain 2>/dev/null || echo "your.domain")/$$(cat /certs/.domain 2>/dev/null || echo "your.domain").key /certs/ego.key && echo Certificate renewed and copied to certs/";
+          sleep 12h & wait $${!};
+        done;
+      else
+        echo "Using webroot mode (requires port 80)";
+        while :; do
+          acme.sh --issue --webroot /var/www/acme -d $$(cat /certs/.domain 2>/dev/null || echo "your.domain") --server letsencrypt --deploy-hook "cp /certs/$$(cat /certs/.domain 2>/dev/null || echo "your.domain")/fullchain.cer /certs/ego.crt && cp /certs/$$(cat /certs/.domain 2>/dev/null || echo "your.domain")/$$(cat /certs/.domain 2>/dev/null || echo "your.domain").key /certs/ego.key && echo Certificate renewed and copied to certs/";
+          sleep 12h & wait $${!};
+        done;
+      fi
+    '
 
 networks:
   ego_net:
@@ -69,5 +85,5 @@ networks:
 volumes:
   ego_data:
   ego_config:
-  certbot_www:
-  certbot_conf:
+  acme_www:
+  acme_conf:

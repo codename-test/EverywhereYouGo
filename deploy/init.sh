@@ -45,6 +45,18 @@ case "$MODE" in
         read DOMAIN
         printf "请输入邮箱: "
         read EMAIL
+        echo ""
+        echo "证书验证方式："
+        echo "  1) webroot 模式（默认，需要 80 端口，域名需解析到本机公网 IP）"
+        echo "  2) Cloudflare DNS API 模式（不需要 80 端口，需要 CF_Token）"
+        printf "请选择 [1-2，默认 1]: "
+        read CERT_MODE
+        CERT_MODE=$(echo "$CERT_MODE" | tr -d '[:space:]')
+        if [ "$CERT_MODE" = "2" ]; then
+            printf "请输入 Cloudflare API Token: "
+            read CF_TOKEN
+            export CF_Token="$CF_TOKEN"
+        fi
         ;;
     *)
         echo "无效选项"
@@ -83,32 +95,52 @@ case $DEPLOY_DIR in
         sed -i.bak "s/your.domain/$DOMAIN/g" nginx.conf
         rm nginx.conf.bak
         mkdir -p certs
+        echo "$DOMAIN" > certs/.domain
         
-        # 检查 80 端口是否被 uhttpd 占用
-        UHTTPD_STOPPED=0
-        if netstat -tlnp 2>/dev/null | grep -q ":80.*uhttpd"; then
-            echo "检测到 80 端口被 uhttpd 占用，临时停止..."
-            /etc/init.d/uhttpd stop
-            UHTTPD_STOPPED=1
+        # 安装 acme.sh 到临时目录
+        echo "安装 acme.sh..."
+        curl -sL https://get.acme.sh | sh -s email=$EMAIL
+        ACME_SH="$HOME/.acme.sh/acme.sh"
+        
+        if [ -n "$CF_Token" ]; then
+            echo "使用 Cloudflare DNS API 模式签发证书..."
+            export CF_Token
+            $ACME_SH --issue --dns dns_cf -d "$DOMAIN" --server letsencrypt
+        else
+            echo "使用 webroot 模式签发证书（需要 80 端口）..."
+            
+            # 检查 80 端口是否被 uhttpd 占用
+            UHTTPD_STOPPED=0
+            if netstat -tlnp 2>/dev/null | grep -q ":80.*uhttpd"; then
+                echo "检测到 80 端口被 uhttpd 占用，临时停止..."
+                /etc/init.d/uhttpd stop
+                UHTTPD_STOPPED=1
+                sleep 2
+            fi
+            
+            # 启动临时 web 服务器
+            mkdir -p /tmp/acme_webroot
+            cd /tmp/acme_webroot
+            python3 -m http.server 80 &
+            WEB_PID=$!
             sleep 2
-        fi
-        
-        echo "签发 Let's Encrypt 证书（需要 80 端口可用）..."
-        docker run --rm -it \
-            -p 80:80 \
-            -v "$(pwd)/certs:/etc/letsencrypt" \
-            certbot/certbot certonly --standalone \
-            -d "$DOMAIN" --email "$EMAIL" --agree-tos --no-eff-email
-        
-        # 恢复 uhttpd
-        if [ "$UHTTPD_STOPPED" = "1" ]; then
-            echo "恢复 uhttpd 服务..."
-            /etc/init.d/uhttpd start
+            
+            $ACME_SH --issue --webroot /tmp/acme_webroot -d "$DOMAIN" --server letsencrypt
+            
+            # 停止临时 web 服务器
+            kill $WEB_PID 2>/dev/null || true
+            cd - > /dev/null
+            
+            # 恢复 uhttpd
+            if [ "$UHTTPD_STOPPED" = "1" ]; then
+                echo "恢复 uhttpd 服务..."
+                /etc/init.d/uhttpd start
+            fi
         fi
         
         # 复制证书到正确位置
-        cp "certs/live/$DOMAIN/fullchain.pem" certs/ego.crt
-        cp "certs/live/$DOMAIN/privkey.pem" certs/ego.key
+        cp "$HOME/.acme.sh/$DOMAIN/fullchain.cer" certs/ego.crt
+        cp "$HOME/.acme.sh/$DOMAIN/$DOMAIN.key" certs/ego.key
         ;;
 esac
 

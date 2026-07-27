@@ -8,7 +8,7 @@
 | T1 | `t1-host/` | `host` | HTTPS 自签名 | 自动生成 | 家庭 / 内网调试，直接用主机端口 |
 | T2 | `t2-bridge/` | `bridge` | HTTPS 自签名 | 自动生成 | 内网多容器协同，容器间用服务名互访 |
 | T3 | `t3-nginx/` | `bridge` + Nginx | HTTPS 可信证书 | 手动 | 正式生产，自有证书 |
-| T4 | `t4-certbot/` | `bridge` + Nginx + Certbot | HTTPS 可信证书 | Let's Encrypt 自动 | 有公网域名，全自动免费证书 |
+| T4 | `t4-certbot/` | `bridge` + Nginx + acme.sh | HTTPS 可信证书 | Let's Encrypt 自动 | 有公网域名，全自动免费证书 |
 
 ## 为什么管理页面要 HTTPS
 
@@ -65,7 +65,7 @@ docker compose up -d
 访问 `https://<域名或IP>/`。Nginx 在 443 终结 TLS（你的证书），全流量透传 EGo 的 HTTP 5000；
 路径路由由 EGo 内部处理（用户在前端改 path_prefix，nginx 无需改动）。80 自动跳 443。
 
-### T4（Nginx + Certbot 自动证书）
+### T4（Nginx + acme.sh 自动证书）
 
 **一键部署：**
 
@@ -73,23 +73,31 @@ docker compose up -d
 curl -O https://raw.githubusercontent.com/codename-test/EverywhereYouGo/main/deploy/init.sh
 chmod +x init.sh
 ./init.sh
-# 选择选项 5，按提示输入域名和邮箱
+# 选择选项 5，按提示输入域名、邮箱和验证方式
 ```
+
+支持两种验证方式：
+- **webroot 模式**（默认）：需要 80 端口，域名需解析到本机公网 IP
+- **Cloudflare DNS API 模式**：不需要 80 端口，需要 Cloudflare API Token
 
 **手动部署（如需自定义）：**
 
 ```bash
 cd deploy/t4-certbot
-# 1) 先用 standalone 签发一次（此时先别起 nginx，让 certbot 临时占用 80）
-mkdir certs
-docker compose run --rm --service-ports certbot certonly --standalone \
-  -d your.domain --email you@example.com --agree-tos --no-eff-email
-# 2) 把 nginx.conf 里的 your.domain 全部替换成你的域名
-# 3) 复制签发好的证书到 certs/ 目录
-docker compose run --rm certbot cp /etc/letsencrypt/live/your.domain/fullchain.pem /certs/ego.crt
-docker compose run --rm certbot cp /etc/letsencrypt/live/your.domain/privkey.pem   /certs/ego.key
-# 4) 启动全栈
+mkdir -p certs
+echo "your.domain" > certs/.domain
+
+# 方式一：webroot 模式（需要 80 端口）
 docker compose up -d
+docker compose exec acme acme.sh --issue --webroot /var/www/acme -d your.domain --server letsencrypt
+
+# 方式二：Cloudflare DNS API 模式（不需要 80 端口）
+CF_Token=your_token docker compose up -d
+docker compose exec acme acme.sh --issue --dns dns_cf -d your.domain --server letsencrypt
+
+# 复制证书到正确位置
+docker compose exec acme cp /acme.sh/your.domain/fullchain.cer /certs/ego.crt
+docker compose exec acme cp /acme.sh/your.domain/your.domain.key /certs/ego.key
 ```
 
-之后 `certbot` 容器每 12 小时自动尝试续期（webroot 方式）。续期成功后会自动复制证书到 `certs/` 目录，nginx 容器每 60 秒轮询检测证书变化，发现更新后自动 reload，全程无需人工干预。
+之后 `acme.sh` 容器每 12 小时自动尝试续期。续期成功后会自动复制证书到 `certs/` 目录，nginx 容器每 60 秒轮询检测证书变化，发现更新后自动 reload，全程无需人工干预。
