@@ -16,9 +16,11 @@ echo "  3) t2-bridge — bridge 网络（容器间互访，适合多容器协同
 echo "  4) t3-nginx  — Nginx + 手动证书（生产环境，自有证书）"
 echo "  5) t4-certbot — Nginx + Let's Encrypt（全自动证书，需公网域名）"
 echo ""
-read -p "请输入选项 [1-5]: " MODE
+printf "请输入选项 [1-5]: "
+read MODE
+MODE=$(echo "$MODE" | tr -d '[:space:]')
 
-case $MODE in
+case "$MODE" in
     1)
         DEPLOY_DIR="default"
         ;;
@@ -30,14 +32,19 @@ case $MODE in
         ;;
     4)
         DEPLOY_DIR="t3-nginx"
-        read -p "请输入域名: " DOMAIN
-        read -p "请输入证书路径: " CERT_PATH
-        read -p "请输入私钥路径: " KEY_PATH
+        printf "请输入域名: "
+        read DOMAIN
+        printf "请输入证书路径: "
+        read CERT_PATH
+        printf "请输入私钥路径: "
+        read KEY_PATH
         ;;
     5)
         DEPLOY_DIR="t4-certbot"
-        read -p "请输入域名: " DOMAIN
-        read -p "请输入邮箱: " EMAIL
+        printf "请输入域名: "
+        read DOMAIN
+        printf "请输入邮箱: "
+        read EMAIL
         ;;
     *)
         echo "无效选项"
@@ -78,7 +85,7 @@ case $DEPLOY_DIR in
         mkdir -p certs
         echo "签发 Let's Encrypt 证书（需要 80 端口可用）..."
         docker compose run --rm --service-ports certbot certonly --standalone \
-            -d "$DOMAIN" --email "$EMAIL" --agree-tos --no-eff-password
+            -d "$DOMAIN" --email "$EMAIL" --agree-tos --no-eff-email
         CERT_PATH=$(docker compose run --rm certbot find /etc/letsencrypt/live -name "fullchain.pem" | head -1 | xargs dirname)
         docker compose run --rm certbot cp "$CERT_PATH/fullchain.pem" /certs/ego.crt
         docker compose run --rm certbot cp "$CERT_PATH/privkey.pem" /certs/ego.key
