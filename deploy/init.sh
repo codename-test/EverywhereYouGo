@@ -138,9 +138,14 @@ case $DEPLOY_DIR in
             fi
         fi
         
-        # 复制证书到正确位置
-        cp "$HOME/.acme.sh/$DOMAIN/fullchain.cer" certs/ego.crt
-        cp "$HOME/.acme.sh/$DOMAIN/$DOMAIN.key" certs/ego.key
+        # 复制证书到正确位置（acme.sh 默认使用 ECC 证书）
+        if [ -d "$HOME/.acme.sh/${DOMAIN}_ecc" ]; then
+            cp "$HOME/.acme.sh/${DOMAIN}_ecc/fullchain.cer" certs/ego.crt
+            cp "$HOME/.acme.sh/${DOMAIN}_ecc/${DOMAIN}.key" certs/ego.key
+        else
+            cp "$HOME/.acme.sh/$DOMAIN/fullchain.cer" certs/ego.crt
+            cp "$HOME/.acme.sh/$DOMAIN/$DOMAIN.key" certs/ego.key
+        fi
         ;;
 esac
 

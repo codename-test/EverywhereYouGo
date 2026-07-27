@@ -63,16 +63,33 @@ services:
     restart: unless-stopped
     entrypoint: /bin/sh -c '
       trap exit TERM;
+      DOMAIN=$$(cat /certs/.domain 2>/dev/null || echo "your.domain");
       if [ -n "$$CF_Token" ]; then
         echo "Using Cloudflare DNS API mode";
         while :; do
-          acme.sh --issue --dns dns_cf -d $$(cat /certs/.domain 2>/dev/null || echo "your.domain") --server letsencrypt --deploy-hook "cp /certs/$$(cat /certs/.domain 2>/dev/null || echo "your.domain")/fullchain.cer /certs/ego.crt && cp /certs/$$(cat /certs/.domain 2>/dev/null || echo "your.domain")/$$(cat /certs/.domain 2>/dev/null || echo "your.domain").key /certs/ego.key && echo Certificate renewed and copied to certs/";
+          acme.sh --issue --dns dns_cf -d $$DOMAIN --server letsencrypt;
+          if [ -d /acme.sh/$${DOMAIN}_ecc ]; then
+            cp /acme.sh/$${DOMAIN}_ecc/fullchain.cer /certs/ego.crt;
+            cp /acme.sh/$${DOMAIN}_ecc/$${DOMAIN}.key /certs/ego.key;
+          else
+            cp /acme.sh/$$DOMAIN/fullchain.cer /certs/ego.crt;
+            cp /acme.sh/$$DOMAIN/$${DOMAIN}.key /certs/ego.key;
+          fi;
+          echo "Certificate renewed and copied to certs/";
           sleep 12h & wait $${!};
         done;
       else
         echo "Using webroot mode (requires port 80)";
         while :; do
-          acme.sh --issue --webroot /var/www/acme -d $$(cat /certs/.domain 2>/dev/null || echo "your.domain") --server letsencrypt --deploy-hook "cp /certs/$$(cat /certs/.domain 2>/dev/null || echo "your.domain")/fullchain.cer /certs/ego.crt && cp /certs/$$(cat /certs/.domain 2>/dev/null || echo "your.domain")/$$(cat /certs/.domain 2>/dev/null || echo "your.domain").key /certs/ego.key && echo Certificate renewed and copied to certs/";
+          acme.sh --issue --webroot /var/www/acme -d $$DOMAIN --server letsencrypt;
+          if [ -d /acme.sh/$${DOMAIN}_ecc ]; then
+            cp /acme.sh/$${DOMAIN}_ecc/fullchain.cer /certs/ego.crt;
+            cp /acme.sh/$${DOMAIN}_ecc/$${DOMAIN}.key /certs/ego.key;
+          else
+            cp /acme.sh/$$DOMAIN/fullchain.cer /certs/ego.crt;
+            cp /acme.sh/$$DOMAIN/$${DOMAIN}.key /certs/ego.key;
+          fi;
+          echo "Certificate renewed and copied to certs/";
           sleep 12h & wait $${!};
         done;
       fi
