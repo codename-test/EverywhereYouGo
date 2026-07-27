@@ -29,6 +29,7 @@ services:
       - LOG_LEVEL=INFO
       - EGO_SSL_CERT=/app/certs/ego-selfsigned.crt
       - EGO_SSL_KEY=/app/certs/ego-selfsigned.key
+      - EGO_SECRET_KEY=${EGO_SECRET_KEY:-}
     volumes:
       - ego_data:/app/data
       - ego_config:/app/config
