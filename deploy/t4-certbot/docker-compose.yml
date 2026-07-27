@@ -67,7 +67,7 @@ services:
       if [ -n "$$CF_Token" ]; then
         echo "Using Cloudflare DNS API mode";
         while :; do
-          acme.sh --issue --dns dns_cf -d $$DOMAIN --server letsencrypt;
+          acme.sh --issue --dns dns_cf -d $$DOMAIN -d *.$$DOMAIN --server letsencrypt;
           if [ -d /acme.sh/$${DOMAIN}_ecc ]; then
             cp /acme.sh/$${DOMAIN}_ecc/fullchain.cer /certs/ego.crt;
             cp /acme.sh/$${DOMAIN}_ecc/$${DOMAIN}.key /certs/ego.key;

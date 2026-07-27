@@ -103,9 +103,9 @@ case $DEPLOY_DIR in
         ACME_SH="$HOME/.acme.sh/acme.sh"
         
         if [ -n "$CF_Token" ]; then
-            echo "使用 Cloudflare DNS API 模式签发证书..."
+            echo "使用 Cloudflare DNS API 模式签发证书（含泛域名）..."
             export CF_Token
-            $ACME_SH --issue --dns dns_cf -d "$DOMAIN" --server letsencrypt
+            $ACME_SH --issue --dns dns_cf -d "$DOMAIN" -d "*.$DOMAIN" --server letsencrypt
         else
             echo "使用 webroot 模式签发证书（需要 80 端口）..."
             
