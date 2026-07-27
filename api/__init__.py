@@ -42,8 +42,9 @@ def create_app(source_mgr=None):
     # 仅在启用 HTTPS 时追加 Secure（禁止明文传 Cookie），
     # 证书探测与 web_ui.py 保持一致。
     _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    _cert = os.getenv("EGO_SSL_CERT", os.path.join(_root, "certs", "ego.crt"))
-    _key = os.getenv("EGO_SSL_KEY", os.path.join(_root, "certs", "ego.key"))
+    _cert_dir = os.getenv("EGO_SSL_DIR", os.path.join(_root, "certs"))
+    _cert = os.getenv("EGO_SSL_CERT", os.path.join(_cert_dir, "ego.crt"))
+    _key = os.getenv("EGO_SSL_KEY", os.path.join(_cert_dir, "ego.key"))
     _ssl_env = os.getenv("EGO_SSL_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
     _ssl_enabled = _ssl_env and os.path.isfile(_cert) and os.path.isfile(_key)
     app.config["EGO_SSL_ENABLED"] = _ssl_enabled
@@ -71,10 +72,14 @@ def create_app(source_mgr=None):
 
         webhook 接收器（/in/...）与健康检查保持 HTTP，不跳转。
         仅对幂等的 GET/HEAD 跳转，避免改变 POST 语义。
+        支持反向代理：检查 X-Forwarded-Proto 头。
         """
         if not app.config.get("EGO_SSL_ENABLED"):
             return
+        # 检查是否为 HTTPS（支持反向代理）
         if request.scheme == "https":
+            return
+        if request.headers.get("X-Forwarded-Proto", "").lower() == "https":
             return
         path = request.path
         if path.startswith("/static"):

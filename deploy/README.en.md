@@ -69,4 +69,4 @@ docker compose run --rm certbot cp /etc/letsencrypt/live/your.domain/privkey.pem
 docker compose up -d
 ```
 
-The `certbot` container auto-renews every 12 hours (webroot mode). Renewed certs stay in the `certbot_conf` volume — you'll need to manually copy to `certs/` or configure a certbot renewal hook for auto-copy.
+The `certbot` container auto-renews every 12 hours (webroot mode). After successful renewal, certificates are automatically copied to `certs/` directory. The nginx container polls for certificate changes every 60 seconds and automatically reloads when updates are detected — fully automated, no manual intervention required.

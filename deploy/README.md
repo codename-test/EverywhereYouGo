@@ -70,5 +70,4 @@ docker compose run --rm certbot cp /etc/letsencrypt/live/your.domain/privkey.pem
 docker compose up -d
 ```
 
-之后 `certbot` 容器每 12 小时自动尝试续期（webroot 方式）。续期后证书仍在 certbot_conf volume 中，
-`certs/` 里的软证书需手动更新，或配置 certbot renewal hook 自动复制。
+之后 `certbot` 容器每 12 小时自动尝试续期（webroot 方式）。续期成功后会自动复制证书到 `certs/` 目录，nginx 容器每 60 秒轮询检测证书变化，发现更新后自动 reload，全程无需人工干预。

@@ -132,6 +132,9 @@ def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
 | `WEB_PORT` | `5000` | HTTP 端口（Webhook 接收 / 健康检查） |
 | `WEB_SSL_PORT` | `5001` | HTTPS 端口（管理页面，证书缺失时不启用） |
 | `EGO_SSL_ENABLED` | `1` | 设为 `0` 完全关闭内置 HTTPS（仅 HTTP，不跳转、不生成证书） |
+| `EGO_SSL_DIR` | `./certs` | SSL 证书目录，`ego.crt` 和 `ego.key` 存放位置 |
+| `EGO_SSL_CERT` | `./certs/ego.crt` | 证书文件路径（覆盖 `EGO_SSL_DIR`） |
+| `EGO_SSL_KEY` | `./certs/ego.key` | 私钥文件路径（覆盖 `EGO_SSL_DIR`） |
 | `DB_PATH` | `ego.db` | 数据库路径 |
 | `LOG_LEVEL` | `INFO` | 日志等级 |
 | `EGO_AUTH_TOKEN` | *(空)* | 访问控制 Token |

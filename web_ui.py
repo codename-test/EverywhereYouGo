@@ -21,10 +21,14 @@ app = create_app(source_mgr=None)
 
 
 def ssl_cert_paths():
-    """返回 (cert_file, key_file)，支持环境变量覆盖。"""
+    """返回 (cert_file, key_file)，支持环境变量覆盖。
+    
+    优先级：EGO_SSL_CERT/EGO_SSL_KEY > EGO_SSL_DIR > 默认 ./certs/
+    """
     root = os.path.dirname(os.path.abspath(__file__))
-    cert_file = os.getenv("EGO_SSL_CERT", os.path.join(root, "certs", "ego.crt"))
-    key_file = os.getenv("EGO_SSL_KEY", os.path.join(root, "certs", "ego.key"))
+    cert_dir = os.getenv("EGO_SSL_DIR", os.path.join(root, "certs"))
+    cert_file = os.getenv("EGO_SSL_CERT", os.path.join(cert_dir, "ego.crt"))
+    key_file = os.getenv("EGO_SSL_KEY", os.path.join(cert_dir, "ego.key"))
     return cert_file, key_file
 
 

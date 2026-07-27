@@ -3,10 +3,6 @@
 
 > Universal Message Forwarding Platform — Data → Parse → Route → Push
 
-# EverywhereYouGo (EGo)
-
-> Universal Message Forwarding Platform — Data → Parse → Route → Push
-
 EGo receives arbitrary HTTP requests, extracts structured fields through parsers, matches routes by conditions, and pushes to multiple channels.
 
 ## Quick Start
@@ -99,6 +95,9 @@ After startup: admin UI at `https://<host-IP>:5001` (self-signed cert, accept th
 | `WEB_PORT` | `5000` | HTTP port (webhook receivers / health check) |
 | `WEB_SSL_PORT` | `5001` | HTTPS port (admin UI; disabled if no cert) |
 | `EGO_SSL_ENABLED` | `1` | Set to `0` to fully disable built-in HTTPS (HTTP only, no redirect, no cert generation) |
+| `EGO_SSL_DIR` | `./certs` | SSL certificate directory for `ego.crt` and `ego.key` |
+| `EGO_SSL_CERT` | `./certs/ego.crt` | Certificate file path (overrides `EGO_SSL_DIR`) |
+| `EGO_SSL_KEY` | `./certs/ego.key` | Private key file path (overrides `EGO_SSL_DIR`) |
 | `DB_PATH` | `ego.db` | Database path |
 | `LOG_LEVEL` | `INFO` | Log level |
 | `EGO_AUTH_TOKEN` | `""` | Bearer token for API auth (empty = no auth) |
