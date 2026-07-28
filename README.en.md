@@ -30,6 +30,20 @@ HTTP POST → Source → Parser → Route Match → Template Render → Push Cha
 | **Template** | Simple / Jinja2 rendering for title and content |
 | **Channel** | WeChat Work, DingTalk, Feishu, Telegram, Bark |
 
+## Authentication
+
+Set `EGO_AUTH_TOKEN` environment variable to enable access control:
+
+```bash
+EGO_AUTH_TOKEN=your-secret-token python3 main.py
+```
+
+- Web UI requires login via token input page
+- API calls require `Authorization: Bearer your-secret-token` header
+- Health check `/api/health` does not require authentication
+
+Optionally set `EGO_SECRET_KEY` to customize Flask session key.
+
 ## Config
 
 Persistent configuration is stored as JSON files in `config/`:
@@ -76,6 +90,32 @@ Supports `and`, `or`, and parenthesized expressions:
 | `event == 'library.new' or event == 'test'` | New items or test messages |
 | `media_type in ('Movie', 'Series')` | Movies or series |
 
+## Features
+
+### Do Not Disturb (DND)
+Set a DND time window, messages enter a queue and are automatically flushed when the period ends. Urgent routes are not affected by DND.
+
+### Message Deduplication
+Channel bindings can configure `dedup_key_expr` and `dedup_window` (default 3600 seconds). Messages with the same dedup key are not sent repeatedly within the window.
+
+### Parallel Push
+When multiple channels match, messages are sent in parallel via thread pool. Total latency depends on the slowest channel.
+
+### Sample Data & Online Debugging
+Each source automatically saves the last 20 request samples. You can select samples in the WebUI for test parsing and pushing.
+
+### Message Resend
+Failed messages support original resend (using parsed msg_json) or re-parse and resend.
+
+### Import & Export
+- **Backup**: Download ZIP package (`config/*.json` + `parsers/*.py`)
+- **Restore**: Upload ZIP package, config is automatically reloaded
+- **JSON Import**: Supports dry_run preview, insert/overwrite modes, and dependency check
+
+## Internationalization
+
+Built-in Chinese and English bilingual support. Switch languages anytime via the button in the top-right corner of the navigation bar.
+
 ## Deploy
 
 ### Docker
@@ -108,6 +148,7 @@ After startup: admin UI at `https://<host-IP>:5001` (self-signed cert, accept th
 | `DB_PATH` | `ego.db` | Database path |
 | `LOG_LEVEL` | `INFO` | Log level |
 | `EGO_AUTH_TOKEN` | `""` | Bearer token for API auth (empty = no auth) |
+| `EGO_SECRET_KEY` | *(auto)* | Flask session key |
 
 ## Channel Types
 
