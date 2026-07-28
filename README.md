@@ -1,5 +1,7 @@
 # EverywhereYouGo (EGo) v1.2.3
 
+[English](README.en.md) | 中文
+
 > 通用信息转发平台 — 数据 → 解析 → 路由 → 推送
 
 接收任意 HTTP 请求，经解析器提取结构化字段，按条件路由到多个推送渠道。
@@ -17,7 +19,7 @@ chmod +x init.sh
 
 支持 5 种部署模式：default（快速起步）、t1-host（host 网络）、t2-bridge（bridge 网络）、t3-nginx（Nginx + 手动证书）、t4-certbot（Nginx + Let's Encrypt 全自动证书）。
 
-> 更多部署形态说明见 `deploy/` 目录下的 `README.md`（中文）和 `README.en.md`（英文）。
+> 更多部署形态说明见 [deploy/README.md](deploy/README.md)。
 
 启动后：管理页面 `https://<主机IP>:5001`（自签名证书，浏览器需放行）；Webhook 接收与健康检查走 `http://<主机IP>:5000`。
 
