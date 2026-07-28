@@ -47,3 +47,6 @@ doc/improvement.md
 *.db-shm
 *.db-wal
 
+# 证书文件（运行时自动生成）
+certs/
+
