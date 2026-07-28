@@ -1,12 +1,13 @@
 {
-  "version": "1.2.3",
-  "release_date": "2026-07-27",
+  "version": "1.2.4",
+  "release_date": "2026-07-28",
   "url": "https://github.com/codename-test/EverywhereYouGo/releases/latest",
   "changelog": [
-    "部署配置重构：统一 deploy/ 目录五套环境，nginx 证书/端口标准化",
-    "EGO_SSL_DIR 参数一致性修复（api/web_ui/gen_cert 三处统一）",
-    "nginx 代理 301 跳转修复（检查 X-Forwarded-Proto 头）",
-    "T4 证书续期全自动（certbot deploy-hook + nginx 轮询 reload）",
-    "README 环境变量文档更新，配置持久化说明修正"
+    "T4 证书方案重构：certbot 改用 acme.sh + Cloudflare DNS 验证（无需 80 端口）",
+    "证书分离：EGo 5001 恒用 Flask 自签名证书，nginx(T3/T4) 独立使用真实证书",
+    "一键脚本 init.sh 支持中英双语，T3/T4 增加端口占用检测与自定义",
+    "deploy/README 增补证书规则说明与 T4 续签运维操作",
+    "修复解析器/通道插件上传及 <filename> 路由的路径穿越（#22a）",
+    "build.py 镜像名/版本/部署示例修正"
   ]
 }

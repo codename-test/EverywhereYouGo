@@ -4,6 +4,27 @@
 
 ---
 
+## v1.2.4（2026-07-28）
+
+### 部署配置重构（deploy/）
+
+- T4 证书方案由 certbot 改为 **acme.sh + Cloudflare DNS 验证**（无需 80 端口，适合 80 被占用 / 无公网 80 / 内网穿透）；目录 `t4-certbot/` 更名 `t4-acme/`。
+- **证书分离**：EGo 5001 管理页面恒用 Flask 自动生成的自签名证书（`ego_certs` 卷持久化），T1–T4 统一遵循；nginx（T3/T4）独立使用真实证书（T3 手动导入、T4 Let's Encrypt），反代到 EGo 明文 HTTP 5000。两张证书互不影响。
+- T3/T4 nginx 主机端口参数化：`${HTTP_PORT:-80}` / `${HTTPS_PORT:-443}`，可用 `.env` 覆盖。
+- 一键脚本 `init.sh` 支持**中英双语**；T3/T4 增加端口占用检测（netstat 告警）与现场自定义，并把端口/域名/CF_Token/EGO_SECRET_KEY 写入最终生成的 compose 与 `.env`。
+- `deploy/README.md` / `README.en.md` 增补「证书规则」说明与 T4 证书续签运维操作（查日志 / 查有效期 / 强制续期 / 换域名 / 换 Token）。
+
+### 安全修复
+
+- #22a 路径穿越：解析器上传（`api/parsers.py`）、通道插件上传及其 `<filename>` 路由（GET/PUT/DELETE/test/fields，`api/channels.py`）统一对文件名做 `os.path.basename()`，封堵 `../` 逃逸（PUT/DELETE 可写/删任意文件，风险最高）。
+
+### 其它
+
+- `build.py`：版本升至 1.2.4，镜像名改为 `codenametest/everywhereyougo`（与 deploy/ 拉取一致），部署示例改为双端口。
+- `doc/roadmap.md`：路径路由（#17）已在 v1.2.2 交付，移入已完成；补充已完成版本列表。
+
+---
+
 ## v1.2.3（2026-07-27）
 
 ### 部署配置重构

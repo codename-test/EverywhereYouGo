@@ -194,13 +194,13 @@ v1.2.2 起应用同时监听两个端口，按用途分流：
 | T1 | 裸机直连 | `host` | HTTPS 自签名 | 自动自签名 | 家庭/内网调试 |
 | T2 | Docker 内网 | `bridge` | HTTPS 自签名 | 自动自签名 | 容器间协同 |
 | T3 | 企业级部署 | `bridge` + Nginx | HTTPS 可信证书 | 手动证书 | 正式生产环境 |
-| T4 | 懒人全自动 | `bridge` + Nginx + Certbot | HTTPS 可信证书 | Let's Encrypt | 个人/小团队云端 |
+| T4 | 懒人全自动 | `bridge` + Nginx + acme.sh | HTTPS 可信证书 | Let's Encrypt | 个人/小团队云端 |
 
 > 管理页面统一走 HTTPS：浏览器剪贴板 API（页面复制按钮）要求安全上下文。T1/T2 用应用内置自签名证书（`ego_certs` 卷持久化），Webhook / 健康检查始终 HTTP。
 
 **职责分工**：EGo 负责核心消息处理 + WebUI SSL + 5MB Body 防护。Nginx（T3/T4）负责 HTTPS 终结 + 认证 + 限流 + 来源鉴权。
 
-> 开箱即用的 Compose 配置统一见 `deploy/`（`default` / `t1-host` / `t2-bridge` / `t3-nginx` / `t4-certbot`），选用方式见 `deploy/README.md`。
+> 开箱即用的 Compose 配置统一见 `deploy/`（`default` / `t1-host` / `t2-bridge` / `t3-nginx` / `t4-acme`），选用方式见 `deploy/README.md`。
 
 ---
 
