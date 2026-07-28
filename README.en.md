@@ -1,6 +1,8 @@
 
 # EverywhereYouGo (EGo) v1.2.3
 
+[中文](README.md) | English
+
 > Universal Message Forwarding Platform — Data → Parse → Route → Push
 
 EGo receives arbitrary HTTP requests, extracts structured fields through parsers, matches routes by conditions, and pushes to multiple channels.

@@ -1,5 +1,7 @@
 # EverywhereYouGo (EGo) v1.2.3
 
+[English](README.en.md) | 中文
+
 > 通用信息转发平台 — 数据 → 解析 → 路由 → 推送
 
 接收任意 HTTP 请求，经解析器提取结构化字段，按条件路由到多个推送渠道。
@@ -148,8 +150,3 @@ def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
 ## License
 
 MIT
-# 测试审核规则
-# 测试审核规则 2
-# 测试审核规则 3
-# 测试审核规则 4
-# 测试审核规则 5
