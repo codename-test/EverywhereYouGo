@@ -66,13 +66,13 @@ cp /path/to/your/ego.key certs/ego.key
 docker compose up -d
 ```
 
-访问 `https://<域名或IP>/`。Nginx 在 443 终结 TLS（你的证书），全流量透传 EGo 的 HTTP 5000；
-路径路由由 EGo 内部处理（用户在前端改 path_prefix，nginx 无需改动）。80 自动跳 443。
+访问 `https://<域名或IP>:4430/`。Nginx 在 4430 终结 TLS（你的证书），全流量透传 EGo 的 HTTP 5000；
+路径路由由 EGo 内部处理（用户在前端改 path_prefix，nginx 无需改动）。800 自动跳 4430。
 
 ### T4（Nginx + acme.sh 自动证书）
 
 **证书分离设计：**
-- nginx 443: 使用 `certs/ego.crt` + `ego.key`（Let's Encrypt 证书）
+- nginx 4430: 使用 `certs/ego.crt` + `ego.key`（Let's Encrypt 证书）
 - EGo 5001: 使用 `certs/ego-selfsigned.crt` + `ego-selfsigned.key`（自签名证书）
 
 **一键部署：**
@@ -85,8 +85,8 @@ chmod +x init.sh
 ```
 
 支持两种验证方式：
-- **webroot 模式**（默认）：需要 80 端口，域名需解析到本机公网 IP
-- **Cloudflare DNS API 模式**：不需要 80 端口，需要 Cloudflare API Token
+- **webroot 模式**（默认）：需要 800 端口，域名需解析到本机公网 IP
+- **Cloudflare DNS API 模式**：不需要 800 端口，需要 Cloudflare API Token
 
 **手动部署（如需自定义）：**
 
@@ -95,11 +95,11 @@ cd deploy/t4-certbot
 mkdir -p certs
 echo "your.domain" > certs/.domain
 
-# 方式一：webroot 模式（需要 80 端口）
+# 方式一：webroot 模式（需要 800 端口）
 docker compose up -d
 docker compose exec acme acme.sh --issue --webroot /var/www/acme -d your.domain --server letsencrypt
 
-# 方式二：Cloudflare DNS API 模式（不需要 80 端口）
+# 方式二：Cloudflare DNS API 模式（不需要 800 端口）
 CF_Token=your_token docker compose up -d
 docker compose exec acme acme.sh --issue --dns dns_cf -d your.domain --server letsencrypt
 

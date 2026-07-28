@@ -66,12 +66,12 @@ cp /path/to/your/ego.key certs/ego.key
 docker compose up -d
 ```
 
-Access `https://<domain-or-IP>/`. Nginx terminates TLS on 443 (your cert), proxies all traffic to EGo's HTTP 5000. Path routing is handled internally by EGo — change `path_prefix` in the UI, nginx needs no changes. Port 80 automatically redirects to 443.
+Access `https://<domain-or-IP>:4430/`. Nginx terminates TLS on 4430 (your cert), proxies all traffic to EGo's HTTP 5000. Path routing is handled internally by EGo — change `path_prefix` in the UI, nginx needs no changes. Port 800 automatically redirects to 4430.
 
 ### T4 (Nginx + acme.sh Auto)
 
 **Certificate separation design:**
-- nginx 443: uses `certs/ego.crt` + `ego.key` (Let's Encrypt certificate)
+- nginx 4430: uses `certs/ego.crt` + `ego.key` (Let's Encrypt certificate)
 - EGo 5001: uses `certs/ego-selfsigned.crt` + `ego-selfsigned.key` (self-signed certificate)
 
 **One-click deployment:**
@@ -84,8 +84,8 @@ chmod +x init.sh
 ```
 
 Supports two verification methods:
-- **webroot mode** (default): Requires port 80, domain must resolve to this server's public IP
-- **Cloudflare DNS API mode**: No port 80 required, needs Cloudflare API Token
+- **webroot mode** (default): Requires port 800, domain must resolve to this server's public IP
+- **Cloudflare DNS API mode**: No port 800 required, needs Cloudflare API Token
 
 **Manual deployment (for customization):**
 
@@ -94,11 +94,11 @@ cd deploy/t4-certbot
 mkdir -p certs
 echo "your.domain" > certs/.domain
 
-# Method 1: webroot mode (requires port 80)
+# Method 1: webroot mode (requires port 800)
 docker compose up -d
 docker compose exec acme acme.sh --issue --webroot /var/www/acme -d your.domain --server letsencrypt
 
-# Method 2: Cloudflare DNS API mode (no port 80 required)
+# Method 2: Cloudflare DNS API mode (no port 800 required)
 CF_Token=your_token docker compose up -d
 docker compose exec acme acme.sh --issue --dns dns_cf -d your.domain --server letsencrypt
 
