@@ -33,7 +33,7 @@ def api_create_parser():
     f = request.files["file"]
     if not f.filename.endswith(".py"):
         return jsonify({"error": i18n._("err.py_only")}), 400
-    filename = f.filename
+    filename = os.path.basename(f.filename)
     filepath = os.path.join(PARSERS_DIR, filename)
     f.save(filepath)
     pid = db.create_parser(name, filename, desc)

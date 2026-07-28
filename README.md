@@ -1,4 +1,4 @@
-# EverywhereYouGo (EGo) v1.2.3
+# EverywhereYouGo (EGo) v1.2.4
 
 [English](README.en.md) | 中文
 
@@ -17,7 +17,7 @@ chmod +x init.sh
 # 按提示选择部署模式
 ```
 
-支持 5 种部署模式：default（快速起步）、t1-host（host 网络）、t2-bridge（bridge 网络）、t3-nginx（Nginx + 手动证书）、t4-certbot（Nginx + Let's Encrypt 全自动证书）。
+支持 5 种部署模式：default（快速起步）、t1-host（host 网络）、t2-bridge（bridge 网络）、t3-nginx（Nginx + 手动证书）、t4-acme（Nginx + Let's Encrypt 全自动证书）。
 
 > 更多部署形态说明见 [deploy/README.md](deploy/README.md)。
 

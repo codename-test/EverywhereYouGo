@@ -62,7 +62,7 @@ def api_create_channel_plugin():
     f = request.files["file"]
     if not f.filename.endswith(".py"):
         return jsonify({"error": i18n._("err.py_only")}), 400
-    filename = f.filename
+    filename = os.path.basename(f.filename)
     filepath = os.path.join(CHANNELS_DIR, filename)
     if os.path.isfile(filepath):
         return jsonify({"error": i18n._("err.parser_exists")}), 400
@@ -77,6 +77,7 @@ def api_create_channel_plugin():
 
 @channels_bp.route("/api/channel_plugins/<filename>", methods=["GET"])
 def api_get_channel_plugin_content(filename):
+    filename = os.path.basename(filename)
     filepath = os.path.join(CHANNELS_DIR, filename)
     if not os.path.isfile(filepath):
         return jsonify({"error": i18n._("err.file_not_found")}), 404
@@ -86,6 +87,7 @@ def api_get_channel_plugin_content(filename):
 
 @channels_bp.route("/api/channel_plugins/<filename>", methods=["PUT"])
 def api_update_channel_plugin_content(filename):
+    filename = os.path.basename(filename)
     data = request.json
     if "content" not in data:
         return jsonify({"error": i18n._("err.missing_content")}), 400
@@ -101,6 +103,7 @@ def api_update_channel_plugin_content(filename):
 
 @channels_bp.route("/api/channel_plugins/<filename>", methods=["DELETE"])
 def api_delete_channel_plugin(filename):
+    filename = os.path.basename(filename)
     filepath = os.path.join(CHANNELS_DIR, filename)
     if os.path.isfile(filepath):
         os.remove(filepath)
@@ -112,6 +115,7 @@ def api_delete_channel_plugin(filename):
 
 @channels_bp.route("/api/channel_plugins/<filename>/test", methods=["POST"])
 def api_test_channel_plugin(filename):
+    filename = os.path.basename(filename)
     config = request.json or {}
     result = channel_loader.test_channel(filename, config)
     return jsonify(result)
@@ -119,6 +123,7 @@ def api_test_channel_plugin(filename):
 
 @channels_bp.route("/api/channel_plugins/<filename>/fields", methods=["GET"])
 def api_channel_plugin_fields(filename):
+    filename = os.path.basename(filename)
     try:
         mod = channel_loader.load_plugin(filename)
         cls = mod.Channel

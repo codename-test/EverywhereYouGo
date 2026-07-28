@@ -5,7 +5,7 @@ EGo 构建脚本 — 打包 Docker 镜像。
 用法:
   python3 build.py                  # 构建镜像
   python3 build.py --push           # 构建并推送
-  python3 build.py --tag v1.2.1     # 指定版本标签
+  python3 build.py --tag v1.2.4     # 指定版本标签
 """
 
 import os
@@ -13,8 +13,8 @@ import sys
 import subprocess
 import argparse
 
-VERSION = "1.2.1"
-IMAGE_NAME = "ego"
+VERSION = "1.2.4"
+IMAGE_NAME = "codenametest/everywhereyougo"
 DOCKERFILE = "Dockerfile"
 
 
@@ -56,5 +56,6 @@ if __name__ == "__main__":
             run(f"docker push {t}")
         print("✅ Pushed all tags")
 
-    print("\n📦 使用方式:")
-    print(f"  docker run -d --name ego -p 5000:5000 -v ./ego_data:/app/data {tags[0]}")
+    print("\n📦 使用方式（推荐直接用 deploy/ 下的 compose 配置）:")
+    print(f"  docker run -d --name ego -p 5000:5000 -p 5001:5001 "
+          f"-v ego_data:/app/data -v ego_config:/app/config -v ego_certs:/app/certs {tags[0]}")

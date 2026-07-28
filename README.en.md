@@ -1,4 +1,4 @@
-# EverywhereYouGo (EGo) v1.2.3
+# EverywhereYouGo (EGo) v1.2.4
 
 [中文](README.md) | English
 
@@ -17,7 +17,7 @@ chmod +x init.sh
 # Follow prompts to select deployment mode
 ```
 
-Supports 5 deployment modes: default (quick start), t1-host (host network), t2-bridge (bridge network), t3-nginx (Nginx + manual certificate), t4-certbot (Nginx + Let's Encrypt auto certificate).
+Supports 5 deployment modes: default (quick start), t1-host (host network), t2-bridge (bridge network), t3-nginx (Nginx + manual certificate), t4-acme (Nginx + Let's Encrypt auto certificate).
 
 > More deployment options in [deploy/README.en.md](deploy/README.en.md).
 
