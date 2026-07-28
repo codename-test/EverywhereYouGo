@@ -47,8 +47,8 @@ case "$MODE" in
         read EMAIL
         echo ""
         echo "证书验证方式："
-        echo "  1) webroot 模式（默认，需要 80 端口，域名需解析到本机公网 IP）"
-        echo "  2) Cloudflare DNS API 模式（不需要 80 端口，需要 CF_Token）"
+        echo "  1) webroot 模式（默认，需要 800 端口，域名需解析到本机公网 IP）"
+        echo "  2) Cloudflare DNS API 模式（不需要 800 端口，需要 CF_Token）"
         printf "请选择 [1-2，默认 1]: "
         read CERT_MODE
         CERT_MODE=$(echo "$CERT_MODE" | tr -d '[:space:]')
@@ -107,12 +107,12 @@ case $DEPLOY_DIR in
             export CF_Token
             $ACME_SH --issue --dns dns_cf -d "$DOMAIN" -d "*.$DOMAIN" --server letsencrypt
         else
-            echo "使用 webroot 模式签发证书（需要 80 端口）..."
+            echo "使用 webroot 模式签发证书（需要 800 端口）..."
             
-            # 检查 80 端口是否被 uhttpd 占用
+            # 检查 800 端口是否被 uhttpd 占用
             UHTTPD_STOPPED=0
-            if netstat -tlnp 2>/dev/null | grep -q ":80.*uhttpd"; then
-                echo "检测到 80 端口被 uhttpd 占用，临时停止..."
+            if netstat -tlnp 2>/dev/null | grep -q ":800.*uhttpd"; then
+                echo "检测到 800 端口被 uhttpd 占用，临时停止..."
                 /etc/init.d/uhttpd stop
                 UHTTPD_STOPPED=1
                 sleep 2
@@ -121,7 +121,7 @@ case $DEPLOY_DIR in
             # 启动临时 web 服务器
             mkdir -p /tmp/acme_webroot
             cd /tmp/acme_webroot
-            python3 -m http.server 80 &
+            python3 -m http.server 800 &
             WEB_PID=$!
             sleep 2
             
@@ -165,8 +165,8 @@ case $DEPLOY_DIR in
         echo "Webhook:  http://<主机IP>:5000"
         ;;
     t3-nginx|t4-certbot)
-        echo "管理页面: https://$DOMAIN"
-        echo "Webhook:  http://$DOMAIN/in/"
+        echo "管理页面: https://$DOMAIN:4430"
+        echo "Webhook:  http://$DOMAIN:800/in/"
         ;;
 esac
 echo ""
