@@ -17,6 +17,10 @@ body { padding-top: 60px; background: #f5f7fa; }
 .sidebar-version { padding: 12px 20px; color: #475569; font-size: 0.75rem; border-top: 1px solid #334155; position: relative; }
 .sidebar-version .update-dot { display: inline-block; width: 8px; height: 8px; background: #22c55e; border-radius: 50%; margin-left: 4px; vertical-align: middle; cursor: pointer; }
 .sidebar-version .update-dot:hover { background: #16a34a; }
+.sidebar-links { padding: 8px 0; border-top: 1px solid #334155; }
+.sidebar-link { display: block; color: #94a3b8; padding: 8px 20px; font-size: 0.8rem; text-decoration: none; }
+.sidebar-link:hover { color: #fff; background: #334155; }
+.sidebar-link i { margin-right: 8px; }
 .update-popover { position: fixed; bottom: 50px; left: 12px; width: 440px; max-width: calc(100vw - 24px); max-height: calc(100vh - 120px); overflow-y: auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; font-size: 0.8rem; color: #1e293b; box-shadow: 0 4px 12px rgba(0,0,0,.15); z-index: 1000; display: none; }
 .update-popover.show { display: block; }
 .update-popover h6 { margin: 0 0 6px; font-size: 0.85rem; }
@@ -69,6 +73,14 @@ pre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; fo
       <ul id="updateChangelog"></ul>
       <div class="mt-2" id="updateLink"></div>
     </div>
+  </div>
+  <div class="sidebar-links">
+    <a href="https://github.com/codename-test/EverywhereYouGo" target="_blank" class="sidebar-link">
+      <i class="bi bi-github"></i>{{ _("nav.github") }}
+    </a>
+    <a href="https://github.com/codename-test/EverywhereYouGo/issues/new" target="_blank" class="sidebar-link">
+      <i class="bi bi-bug"></i>{{ _("nav.report_bug") }}
+    </a>
   </div>
 </div>
 <div class="main">
