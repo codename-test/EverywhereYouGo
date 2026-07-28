@@ -91,7 +91,7 @@ chmod +x init.sh
 
 Supports 5 deployment modes: default (quick start), t1-host (host network), t2-bridge (bridge network), t3-nginx (Nginx + manual cert), t4-certbot (Nginx + Let's Encrypt auto cert).
 
-> More deployment options are in the [deploy/README.en.md](deploy/README.en.md) (English) and [deploy/README.md](deploy/README.md) (Chinese).
+> More deployment options are in the [deploy/README.en.md](deploy/README.en.md).
 
 After startup: admin UI at `https://<host-IP>:5001` (self-signed cert, accept the browser warning); webhook receivers and health check at `http://<host-IP>:5000`.
 

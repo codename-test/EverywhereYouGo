@@ -1,6 +1,8 @@
 # EGo 部署配置
 
-> 返回项目主页：[README.md](../README.md)（中文）| [README.en.md](../README.en.md)（英文）
+[English](README.en.md) | 中文
+
+> 返回项目主页：[README.md](../README.md)
 
 所有 Docker Compose 配置统一放在本目录。`default/` 是推荐快速起步；`t1`–`t4` 对应 `doc/architecture.md` 部署架构的四个层级。选一套、进入对应目录即可使用。
 
