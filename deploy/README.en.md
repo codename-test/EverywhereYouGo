@@ -1,5 +1,7 @@
 # EGo Deployment Configurations
 
+> Back to project home: [README.en.md](../README.en.md) (English) | [README.md](../README.md) (Chinese)
+
 All Docker Compose configs are in this directory. `default/` is the recommended quick start; `t1`–`t4` correspond to the four deployment tiers in `doc/architecture.md`. Pick one, `cd` into it, and run.
 
 | Config | Directory | Network | Admin UI | Certificate | Use Case |
