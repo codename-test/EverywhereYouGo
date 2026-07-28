@@ -1,33 +1,40 @@
-
 # EverywhereYouGo (EGo) v1.2.3
 
 [中文](README.md) | English
 
 > Universal Message Forwarding Platform — Data → Parse → Route → Push
 
-EGo receives arbitrary HTTP requests, extracts structured fields through parsers, matches routes by conditions, and pushes to multiple channels.
+Receives any HTTP request, extracts structured fields through parsers, routes by conditions to multiple push channels.
 
-## Quick Start
+## Docker Deployment
+
+**One-click Deployment (Recommended):**
 
 ```bash
-pip install -r requirements.txt
-python3 main.py
+curl -O https://raw.githubusercontent.com/codename-test/EverywhereYouGo/main/deploy/init.sh
+chmod +x init.sh
+./init.sh
+# Follow prompts to select deployment mode
 ```
 
-Open `https://localhost:5001` for the admin UI (self-signed cert; accept the browser warning). Webhook receivers and the health check run over plain HTTP on `http://localhost:5000`.
+Supports 5 deployment modes: default (quick start), t1-host (host network), t2-bridge (bridge network), t3-nginx (Nginx + manual certificate), t4-certbot (Nginx + Let's Encrypt auto certificate).
+
+> More deployment options in [deploy/README.en.md](deploy/README.en.md).
+
+After startup: Admin UI at `https://<Host IP>:5001` (self-signed certificate, browser needs to allow); Webhook receiver and health check on `http://<Host IP>:5000`.
 
 ## Architecture
 
 ```
-HTTP POST → Source → Parser → Route Match → Template Render → Push Channel
+HTTP POST → Data Source → Parser → Route Match → Template Render → Push Channel
 ```
 
 | Component | Description |
-|-----------|-------------|
-| **Source** | Listens on a port, receives HTTP POST |
+|------|------|
+| **Data Source** | Listens on port to receive HTTP POST |
 | **Parser** | Python script, extracts fields and defines variable names |
-| **Route** | Condition expression matching channel-template pairs |
-| **Template** | Simple / Jinja2 rendering for title and content |
+| **Route** | Condition expression matches channel-template pairs |
+| **Template** | Simple / Jinja2 renders title and content |
 | **Channel** | WeChat Work, DingTalk, Feishu, Telegram, Bark |
 
 ## Authentication
@@ -38,29 +45,29 @@ Set `EGO_AUTH_TOKEN` environment variable to enable access control:
 EGO_AUTH_TOKEN=your-secret-token python3 main.py
 ```
 
-- Web UI requires login via token input page
+- Web pages require login via token input page
 - API calls require `Authorization: Bearer your-secret-token` header
 - Health check `/api/health` does not require authentication
 
 Optionally set `EGO_SECRET_KEY` to customize Flask session key.
 
-## Config
+## Configuration Files
 
-Persistent configuration is stored as JSON files in `config/`:
+Configuration is persisted as JSON files in `config/` directory:
 
 | File | Content |
-|------|---------|
+|------|------|
 | `config/parsers.json` | Parser metadata |
-| `config/sources.json` | Source definitions |
-| `config/channels.json` | Push channel configs |
+| `config/sources.json` | Data source definitions |
+| `config/channels.json` | Push channel configurations |
 | `config/templates.json` | Push templates |
 | `config/bindings.json` | Channel bindings (with condition expressions) |
 
-Edit JSON directly and restart, or manage via WebUI. System settings (DND, log level) and runtime data (message logs) are stored in SQLite (`ego.db`).
+Can directly edit JSON and restart to take effect, or manage via WebUI. System settings (DND, log level, etc.) and runtime data (message logs) are stored in SQLite (`ego.db`).
 
-## Parser
+## Parsers
 
-Place `.py` files in `parsers/`, define a `parse()` function:
+Place `.py` files in `parsers/` directory, define a `parse()` function:
 
 ```python
 def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
@@ -69,91 +76,55 @@ def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
     name = data.get("Item", {}).get("Name", "")
     return {
         "title": name,
-        "content": "- **event**: " + event + "\n- **name**: " + name,
         "event": event,
         "name": name,
     }
 ```
 
-Fields other than `title`/`content` are used for:
+Fields in returned dict except `title` are also used for:
 - **Route condition matching**: `event == 'library.new' and media_type == 'Movie'`
 - **Template variable reference**: `{name}` / `{{ msg.name }}`
 
 ## Route Conditions
 
-Supports `and`, `or`, and parenthesized expressions:
+Supports `and`, `or`, parentheses grouping:
 
 | Example | Description |
-|---------|-------------|
+|------|------|
 | `event == 'library.new'` | New items only |
 | `event == 'library.new' and media_type == 'Movie'` | New movies only |
 | `event == 'library.new' or event == 'test'` | New items or test messages |
-| `media_type in ('Movie', 'Series')` | Movies or series |
 
 ## Features
 
 ### Do Not Disturb (DND)
-Set a DND time window, messages enter a queue and are automatically flushed when the period ends. Urgent routes are not affected by DND.
+Set DND time period, messages enter queue and wait, automatically flush when period ends. Urgent routes are not affected by DND.
 
 ### Message Deduplication
-Channel bindings can configure `dedup_key_expr` and `dedup_window` (default 3600 seconds). Messages with the same dedup key are not sent repeatedly within the window.
+Channel bindings can configure `dedup_key_expr` and `dedup_window` (default 3600 seconds). Same dedup key will not be sent repeatedly within the window.
 
 ### Parallel Push
-When multiple channels match, messages are sent in parallel via thread pool. Total latency depends on the slowest channel.
+When multiple channels match, thread pool sends in parallel, total latency depends on the slowest single channel.
 
 ### Sample Data & Online Debugging
-Each source automatically saves the last 20 request samples. You can select samples in the WebUI for test parsing and pushing.
+Each data source automatically saves the last 20 request samples, can select samples in WebUI for test parsing and pushing.
 
 ### Message Resend
 Failed messages support original resend (using parsed msg_json) or re-parse and resend.
 
 ### Import & Export
 - **Backup**: Download ZIP package (`config/*.json` + `parsers/*.py`)
-- **Restore**: Upload ZIP package, config is automatically reloaded
-- **JSON Import**: Supports dry_run preview, insert/overwrite modes, and dependency check
+- **Restore**: Upload ZIP package, automatically takes effect after overwriting configuration
+- **JSON Import**: Supports dry_run preview, insert/overwrite two modes, dependency check
 
 ## Internationalization
 
-Built-in Chinese and English bilingual support. Switch languages anytime via the button in the top-right corner of the navigation bar.
-
-## Deploy
-
-### Docker
-
-**One-click deployment (recommended):**
-
-```bash
-curl -O https://raw.githubusercontent.com/codename-test/EverywhereYouGo/main/deploy/init.sh
-chmod +x init.sh
-./init.sh
-# Follow prompts to select deployment mode
-```
-
-Supports 5 deployment modes: default (quick start), t1-host (host network), t2-bridge (bridge network), t3-nginx (Nginx + manual cert), t4-certbot (Nginx + Let's Encrypt auto cert).
-
-> More deployment options are in the [deploy/README.en.md](deploy/README.en.md).
-
-After startup: admin UI at `https://<host-IP>:5001` (self-signed cert, accept the browser warning); webhook receivers and health check at `http://<host-IP>:5000`.
-
-### Env Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `WEB_PORT` | `5000` | HTTP port (webhook receivers / health check) |
-| `WEB_SSL_PORT` | `5001` | HTTPS port (admin UI; disabled if no cert) |
-| `EGO_SSL_ENABLED` | `1` | Set to `0` to fully disable built-in HTTPS (HTTP only, no redirect, no cert generation) |
-| `EGO_SSL_DIR` | `./certs` | SSL certificate directory for `ego.crt` and `ego.key` |
-| `EGO_SSL_CERT` | `./certs/ego.crt` | Certificate file path (overrides `EGO_SSL_DIR`) |
-| `EGO_SSL_KEY` | `./certs/ego.key` | Private key file path (overrides `EGO_SSL_DIR`) |
-| `DB_PATH` | `ego.db` | Database path |
-| `LOG_LEVEL` | `INFO` | Log level |
-| `EGO_AUTH_TOKEN` | `""` | Bearer token for API auth (empty = no auth) |
-| `EGO_SECRET_KEY` | *(auto)* | Flask session key |
+Built-in Chinese and English bilingual support, switch languages anytime via language switch button in top-right corner of navigation bar.
 
 ## Channel Types
 
 | Channel | Method | Type Identifier |
-|---------|--------|-----------------|
+|------|------|---------|
 | WeChat Work Bot | Webhook | `wechat_work_bot` |
 | WeChat Work API | App Message | `wechat_work_api` |
 | DingTalk | Webhook | `dingtalk` |
@@ -161,12 +132,20 @@ After startup: admin UI at `https://<host-IP>:5001` (self-signed cert, accept th
 | Telegram | Bot API | `telegram_bot` |
 | Bark | API | `bark` |
 
-## Backup & Restore
+## Environment Variables
 
-Available in System Settings:
-
-- **Backup**: Download ZIP containing `config/*.json` + `parsers/*.py`
-- **Restore**: Upload ZIP, config is automatically reloaded
+| Variable | Default | Description |
+|------|--------|------|
+| `WEB_PORT` | `5000` | HTTP port (Webhook receiver / health check) |
+| `WEB_SSL_PORT` | `5001` | HTTPS port (Admin page, not enabled when certificate is missing) |
+| `EGO_SSL_ENABLED` | `1` | Set to `0` to completely disable built-in HTTPS (HTTP only, no redirect, no certificate generation) |
+| `EGO_SSL_DIR` | `./certs` | SSL certificate directory, where `ego.crt` and `ego.key` are stored |
+| `EGO_SSL_CERT` | `./certs/ego.crt` | Certificate file path (overrides `EGO_SSL_DIR`) |
+| `EGO_SSL_KEY` | `./certs/ego.key` | Private key file path (overrides `EGO_SSL_DIR`) |
+| `DB_PATH` | `ego.db` | Database path |
+| `LOG_LEVEL` | `INFO` | Log level |
+| `EGO_AUTH_TOKEN` | *(empty)* | Access control Token |
+| `EGO_SECRET_KEY` | *(auto)* | Flask session key |
 
 ## License
 
