@@ -104,6 +104,16 @@ def init_db():
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS dedup_keys (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel_id INTEGER NOT NULL,
+            dedup_key  TEXT    NOT NULL,
+            sent_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_dedup_lookup
+            ON dedup_keys(channel_id, dedup_key, sent_at);
+
         CREATE TABLE IF NOT EXISTS logs (
             id        INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

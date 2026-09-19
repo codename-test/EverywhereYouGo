@@ -28,10 +28,14 @@ def _calc_parser_hash(filename):
     return ""
 
 
-def _on_message_received(sender, *, trace_id, source_id, raw_body, headers, query_params):
+def _on_message_received(sender, *, trace_id, source_id, raw_body, headers, query_params,
+                         extra_fields=None):
     """
     message.received 事件处理器。
     执行解析器，成功时触发 message.parsed，返回 (ok, msg) 元组。
+
+    extra_fields 在这里合并（而非调用方），因为路由发生在 message.parsed 之后，
+    而这些字段（如路径路由的 sub_path）必须赶在路由之前进入 msg。
     """
     src = db.get_source(source_id)
     parser = db.get_parser(src["parser_id"]) if src and src.get("parser_id") else None
@@ -58,11 +62,17 @@ def _on_message_received(sender, *, trace_id, source_id, raw_body, headers, quer
         bus.emit(bus.message_failed, trace_id=trace_id, stage="parse", error=str(e)[:500])
         return False, None
 
+    # 合并额外字段（如 sub_path）；必须在触发 message.parsed 之前
+    if extra_fields and isinstance(msg, dict):
+        msg.update(extra_fields)
+    if isinstance(msg, dict):
+        msg["_trace_id"] = trace_id
+
     # 存储解析结果 + 解析器版本哈希
     msg_json = json.dumps(msg, ensure_ascii=False)
     db.update_message(trace_id, status="PARSED", msg_json=msg_json, parser_hash=parser_hash)
 
-    # 触发 message.parsed 事件
+    # 触发 message.parsed 事件（→ router_engine → message.routed → sender_engine）
     bus.emit(bus.message_parsed, trace_id=trace_id, source_id=source_id, msg=msg)
 
     return True, msg

@@ -7,6 +7,7 @@
 
 import json
 import sqlite3
+import log
 from .connection import _conn
 
 
@@ -205,8 +206,40 @@ def update_channel(channel_id, **kwargs):
 
 
 def delete_channel(channel_id):
-    _conn().execute("DELETE FROM channels WHERE id=?", (channel_id,))
-    _conn().commit()
+    """删除通道，并级联清理引用它的记录。
+
+    schema 里 source_channels.channel_id 声明了 ON DELETE CASCADE，但连接未开启
+    PRAGMA foreign_keys（SQLite 默认关闭），级联不会生效——不显式清理就会留下
+    指向已删通道的孤儿绑定，导致路由持续匹配到一个不存在的通道而反复失败。
+
+    待发队列里属于该通道的任务已无法投递，移入死信队列保留（而不是静默丢弃），
+    以便在 WebUI 里可见、可查。
+    """
+    conn = _conn()
+    n = conn.execute(
+        "SELECT COUNT(*) FROM message_queue WHERE channel_id=?", (channel_id,)
+    ).fetchone()[0]
+    if n:
+        log.logger.warning(
+            f"Deleting channel #{channel_id}: moving {n} queued item(s) to DLQ")
+        # 注意：这里必须整批搬一次，不能放进循环——循环里执行会让 SELECT 每次
+        # 都取回全部行，造成 N 倍重复插入
+        conn.execute(
+            """INSERT INTO dead_letter_queue
+               (trace_id, source_id, msg_json, channel_id, template_id,
+                dedup_key, error, retry_count)
+               SELECT trace_id, source_id, msg_json, channel_id, template_id,
+                      dedup_key, 'channel deleted', retry_count
+               FROM message_queue WHERE channel_id=?""",
+            (channel_id,)
+        )
+    conn.execute("DELETE FROM message_queue WHERE channel_id=?", (channel_id,))
+    conn.execute("DELETE FROM source_channels WHERE channel_id=?", (channel_id,))
+    conn.execute("DELETE FROM dedup_keys WHERE channel_id=?", (channel_id,))
+    conn.execute("DELETE FROM channel_breaker WHERE channel_id=?", (channel_id,))
+    conn.execute("DELETE FROM channel_rate_limit WHERE channel_id=?", (channel_id,))
+    conn.execute("DELETE FROM channels WHERE id=?", (channel_id,))
+    conn.commit()
 
 
 def upsert_channel(cid, name, channel_type, config="{}", enabled=1):
@@ -453,7 +486,7 @@ def cleanup_old_messages(overrides=None):
         if hours <= 0:
             continue
         cursor = conn.execute(
-            "DELETE FROM message_log WHERE status=? AND created_at < datetime('now','localtime',?||' hours')",
+            "DELETE FROM message_log WHERE status=? AND created_at < datetime('now',?||' hours')",
             (status, f"-{hours}")
         )
         total += cursor.rowcount

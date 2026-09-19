@@ -310,7 +310,13 @@ def _do_send_direct(trace_id, source_id, msg, matched):
 
 
 def dt_now_str():
-    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    """返回 **UTC** 时间字符串，与 SQLite 的 `CURRENT_TIMESTAMP` 保持一致。
+
+    原先用 `datetime.now()`（本地时间）写入 sent_at，而 created_at 由
+    `CURRENT_TIMESTAMP` 生成（UTC），两者相差一个时区偏移——
+    消息列表里"创建时间/发送时间"会对不上，按二者计算的延迟也会错好几小时。
+    """
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _summarize_failures(channel_results):

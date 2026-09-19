@@ -66,41 +66,27 @@ def process_message(source_id, raw_body: bytes, headers: dict, query_params: dic
     # 1. 记录原始消息
     db.create_message_log(trace_id, source_id, src_name, raw_str, "RECEIVED")
 
-    # 2. 解析（parser_engine 监听 message.received）
+    # 2. 事件总线驱动全链路：解析 → 路由 → 入队
+    #    message.received → parser_engine → message.parsed → router_engine
+    #                     → message.routed  → sender_engine
+    #
+    #    ⚠️ 修复记录（2026-07-28）：原实现除事件链外，自己又重复 emit 了
+    #    message.parsed 与 message.routed，导致**同一条消息被投递 3 次**
+    #    （解析链内各发一次 + 这里再发两次）。该 bug 自 v1.1.0（commit 47ac7f9a）
+    #    起一直存在，回归测试见 tests/test_event_chain.py。
+    #    extra_fields（如 sub_path）改由 parser_engine 在路由之前合并。
     results = bus.emit(
         bus.message_received,
         trace_id=trace_id, source_id=source_id,
         raw_body=raw_body, headers=headers, query_params=query_params,
+        extra_fields=extra_fields,
     )
-    parse_ok, msg = _extract_result(results)
+    parse_ok, msg = _extract_result(results) or (False, None)
     if not parse_ok:
         return False, None
 
-    # 2.5 合并额外字段（如路径路由的 sub_path）
-    if extra_fields and isinstance(msg, dict):
-        msg.update(extra_fields)
-    if isinstance(msg, dict):
-        msg["_trace_id"] = trace_id
-
-    # 3. 路由（router_engine 监听 message.parsed）
-    results = bus.emit(
-        bus.message_parsed,
-        trace_id=trace_id, source_id=source_id, msg=msg,
-    )
-    route_result = _extract_result(results)
-    if route_result is None:
-        return True, msg
-
-    matched, msg = route_result
-
-    # 4. 发送（sender_engine 监听 message.routed）
-    results = bus.emit(
-        bus.message_routed,
-        trace_id=trace_id, source_id=source_id,
-        msg=msg, matched_channels=matched,
-    )
-    send_result = _extract_result(results)
-    return (send_result[0] if send_result else True), msg
+    # 3. 路由与入队已在事件链内完成，此处不再重复触发
+    return True, msg
 
 
 def _extract_result(results):
