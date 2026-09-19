@@ -6,8 +6,13 @@ import log
 import db
 import i18n
 from flask import Blueprint, request, jsonify
+from api.validation import ValidationError, optional_enum, optional_id_list
 
 messages_bp = Blueprint("messages", __name__)
+
+RETRY_MODES = ("original", "rerender")
+RETRY_SCOPES = ("failed", "all")
+BATCH_ACTIONS = ("retry", "ignore", "delete")
 
 
 @messages_bp.route("/api/messages", methods=["GET"])
@@ -34,8 +39,12 @@ def api_delete_message(msg_id):
 @messages_bp.route("/api/messages/<int:msg_id>/retry", methods=["POST"])
 def api_retry_message(msg_id):
     import source_manager as sm
-    mode = request.args.get("mode", "original")
-    ok, err = sm.retry_message(msg_id, mode)
+    # mode: 用原解析结果 / 重新解析；scope: 只重发失败渠道 / 整体重推
+    mode = optional_enum({"mode": request.args.get("mode", "original")},
+                         "mode", RETRY_MODES, default="original")
+    scope = optional_enum({"scope": request.args.get("scope", "failed")},
+                          "scope", RETRY_SCOPES, default="failed")
+    ok, err = sm.retry_message(msg_id, mode, scope)
     return jsonify({"ok": ok, "error": err} if err else {"ok": ok})
 
 
@@ -48,17 +57,20 @@ def api_ignore_message(msg_id):
 @messages_bp.route("/api/messages/batch", methods=["POST"])
 def api_batch_messages():
     import source_manager as sm
-    data = request.json
-    action = data.get("action")
-    ids = data.get("ids", [])
-    mode = data.get("mode", "original")
+    data = request.json or {}
+    action = optional_enum(data, "action", BATCH_ACTIONS)
+    if action is None:
+        raise ValidationError("action is required (retry/ignore/delete)")
+    ids = optional_id_list(data)
+    mode = optional_enum(data, "mode", RETRY_MODES, default="original")
+    scope = optional_enum(data, "scope", RETRY_SCOPES, default="failed")
     if not ids:
         return jsonify({"ok": False, "error": i18n._("err.no_ids")})
 
     results = {"ok": 0, "fail": 0, "errors": []}
     for mid in ids:
         if action == "retry":
-            ok, err = sm.retry_message(mid, mode)
+            ok, err = sm.retry_message(mid, mode, scope)
             if ok:
                 results["ok"] += 1
             else:

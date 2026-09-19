@@ -8,6 +8,10 @@ import db
 import parser_loader
 import i18n
 from flask import Blueprint, request, jsonify, current_app
+from api.validation import (
+    require_name, optional_str, optional_int, optional_port,
+    optional_flag, optional_slug,
+)
 
 sources_bp = Blueprint("sources", __name__)
 
@@ -35,21 +39,22 @@ def api_sources():
 
 @sources_bp.route("/api/sources", methods=["POST"])
 def api_create_source():
-    data = request.json
+    data = request.json or {}
+    port = optional_port(data)
     sid = db.create_source(
-        name=data["name"],
-        port=data.get("port"),
-        parser_id=data.get("parser_id"),
-        enabled=data.get("enabled", 1),
-        slug=data.get("slug"),
-        parent_id=data.get("parent_id"),
-        path=data.get("path", ""),
+        name=require_name(data),
+        port=port,
+        parser_id=optional_int(data, "parser_id", 1, default=None),
+        enabled=optional_flag(data, "enabled", default=1),
+        slug=optional_slug(data),
+        parent_id=optional_int(data, "parent_id", 1, default=None),
+        path=optional_str(data, "path", max_len=200, default="") or "",
     )
     if sid is None:
         return jsonify({"error": i18n._("err.port_in_use")}), 400
     # Only start listener for port-mode sources (no parent, has port)
     sm = current_app.source_mgr
-    if sm and data.get("port") and not data.get("parent_id"):
+    if sm and port and not data.get("parent_id"):
         sm.start_source(sid)
     import config_manager
     config_manager.sync_table("sources")
@@ -58,16 +63,33 @@ def api_create_source():
 
 @sources_bp.route("/api/sources/<int:sid>", methods=["PUT"])
 def api_update_source(sid):
-    data = request.json
+    data = request.json or {}
     old = db.get_source(sid)
     if not old:
         return jsonify({"error": i18n._("err.not_found")}), 404
+
+    # 只接受白名单字段，且逐字段校验（原实现把任意值直接塞进 DB）
+    patch = {}
+    if "name" in data:
+        patch["name"] = require_name(data)
+    if "port" in data:
+        patch["port"] = optional_port(data)
+    if "parser_id" in data:
+        patch["parser_id"] = optional_int(data, "parser_id", 1, default=None)
+    if "enabled" in data:
+        patch["enabled"] = optional_flag(data, "enabled")
+    if "slug" in data:
+        patch["slug"] = optional_slug(data)
+    if "parent_id" in data:
+        patch["parent_id"] = optional_int(data, "parent_id", 1, default=None)
+    if "path" in data:
+        patch["path"] = optional_str(data, "path", max_len=200, default="") or ""
+
     sm = current_app.source_mgr
     # Only stop/start listener for port-mode sources
     if sm and old.get("port") and not old.get("parent_id"):
         sm.stop_source(sid)
-    db.update_source(sid, **{k: v for k, v in data.items()
-                             if k in ("name", "port", "parser_id", "enabled", "slug", "parent_id", "path")})
+    db.update_source(sid, **patch)
     if sm and old.get("port") and not old.get("parent_id") and data.get("enabled", old["enabled"]):
         sm.start_source(sid)
     import config_manager

@@ -1,6 +1,12 @@
 #!/usr/bin/python3
 # -*- coding: UTF-8 -*-
-"""日志模块"""
+"""日志模块
+
+只负责控制台输出与「可注入的写库处理器挂载点」。
+
+依赖方向：main → db → log（单向）。
+本模块**不 import db**——写库处理器由调用方注入，见 `db/log_handler.py`。
+"""
 
 import logging
 import colorlog
@@ -31,23 +37,20 @@ console_handler.setFormatter(console_formatter)
 logger.addHandler(console_handler)
 
 
-class DBHandler(logging.Handler):
-    """将日志写入数据库"""
-    def emit(self, record):
-        try:
-            import db
-            db.add_log(record.levelname, record.getMessage(), record.name)
-        except Exception:
-            pass
-
-
 _db_handler = None
 
 
-def setup_db_logging():
+def setup_db_logging(handler):
+    """挂载「写入数据库」的日志处理器（幂等）。
+
+    handler 由调用方注入，例如：
+        from db.log_handler import make_log_handler
+        log.setup_db_logging(make_log_handler())
+    """
     global _db_handler
     if _db_handler:
-        return
-    _db_handler = DBHandler()
-    _db_handler.setLevel(logger.level)
-    logger.addHandler(_db_handler)
+        return _db_handler
+    handler.setLevel(logger.level)
+    logger.addHandler(handler)
+    _db_handler = handler
+    return handler

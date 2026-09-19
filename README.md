@@ -51,9 +51,14 @@ EGO_AUTH_TOKEN=your-secret-token python3 main.py
 
 可选设置 `EGO_SECRET_KEY` 自定义 Flask session 密钥。
 
-## 配置文件
+## 配置存储
 
-配置持久化为 JSON 文件，位于 `config/` 目录：
+配置有两份，角色不同：
+
+| 存储 | 角色 |
+|------|------|
+| SQLite（`ego.db`） | **运行时真相源** —— 所有读写以库内数据为准 |
+| `config/*.json` | **导出 / 备份介质** —— 便于备份、版本管理与迁移 |
 
 | 文件 | 内容 |
 |------|------|
@@ -63,7 +68,17 @@ EGO_AUTH_TOKEN=your-secret-token python3 main.py
 | `config/templates.json` | 推送模板 |
 | `config/bindings.json` | 渠道绑定（含条件表达式） |
 
-可直接编辑 JSON 后重启生效，也可通过 WebUI 管理。系统设置（DND、日志级别等）和运行时数据（消息日志）存储在 SQLite（`ego.db`）中。
+**启动时的加载规则：**
+
+1. 数据库**已有**配置 → 以数据库为准，不读 JSON，并把当前配置**刷写**回 `config/*.json`
+2. 数据库**为空**且有 JSON → 从 JSON 导入（首次启动 / 迁移 / 恢复）
+3. 数据库为空且无 JSON → 导出初始配置到 JSON
+
+因此 **日常改配置请用 WebUI**（改完即时生效）。直接编辑 `config/*.json` 只在
+「数据库为空」的首次导入场景才会被读取，不是常规生效路径。
+
+系统设置（DND、日志级别等）、消息日志与队列同样存储在 SQLite。
+配置备份 / 恢复请用「系统设置 → 备份」，会打包 `config/*.json` + `parsers/*.py`。
 
 ## 解析器
 
@@ -146,6 +161,18 @@ def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
 | `LOG_LEVEL` | `INFO` | 日志等级 |
 | `EGO_AUTH_TOKEN` | *(空)* | 访问控制 Token |
 | `EGO_SECRET_KEY` | *(自动)* | Flask session 密钥 |
+| `EGO_INGRESS_WORKERS` | `8` | 每个端口数据源的入口工作线程数 |
+| `EGO_INGRESS_MAX_QUEUE` | `200` | 入口等待队列上限，超出返回 503（背压） |
+| `EGO_CLEANUP_INTERVAL` | `600` | 旧消息 / 去重键的清理间隔（秒） |
+| `EGO_BREAKER_WINDOW` | `60` | 熔断滑动窗口（秒） |
+| `EGO_BREAKER_MIN_SAMPLES` | `5` | 窗口内触发失败率判定的最少样本数 |
+| `EGO_BREAKER_FAILURE_RATIO` | `0.5` | 窗口失败率阈值（超过则熔断） |
+| `EGO_BREAKER_CONSECUTIVE` | `5` | 连续失败阈值（照顾低频通道） |
+| `EGO_BREAKER_OPEN_BASE` | `30` | 熔断冷却基数（秒），逐次翻倍 |
+| `EGO_BREAKER_OPEN_MAX` | `600` | 熔断冷却上限（秒） |
+| `EGO_BREAKER_HALF_OPEN_OK` | `3` | 恢复所需连续探测成功次数 |
+| `EGO_RATE_MAX_WAIT` | `1.0` | 限流取令牌的最长等待（秒），超时改为延迟重排 |
+| `EGO_RATE_MISS_TTL` | `30` | 未配置限流的通道，回查数据库的间隔（秒） |
 
 ## License
 

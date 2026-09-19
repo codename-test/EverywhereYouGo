@@ -20,13 +20,32 @@
 | 通道熔断 | ✅ v1.3.0 `circuit_breaker.py`（三态机 + 滑动窗口 + 指数退避 + 4xx 不计失败 + 持久化） | 改进文档 #19 |
 | 出站通道限流 | ✅ v1.3.0 `rate_limiter.py`（每通道令牌桶，拿不到令牌延迟重排） | 改进文档 #21 |
 
+### v1.3.0 追加交付
+
+| 项 | 说明 |
+|------|------|
+| Channel-Level Retry | 重发只针对上次失败的渠道，`scope=all` 可整体重推 |
+| Channel-Level Dedup | 去重粒度下沉到 message × channel（`dedup_keys` 表） |
+| Multi-Worker 一致性 | 结果回写条带锁；实测 2/60 → 60/60 不丢更新 |
+| 系统级测试 | 故障注入 / 熔断×队列 / 重试→死信 / 崩溃恢复 / 并发消费 / 守恒 |
+| 优雅停机 | 停接收 → 等在途任务（超时 30s）→ 未完成刷死信 |
+| 可观测性 | `GET /api/metrics`（队列/死信/通道成功率/延迟/熔断） |
+| 韧性 WebUI | 通道弹窗限流输入框 + 列表「韧性」列（熔断倒计时徽章 + 一键恢复） |
+| API 入参校验（#27） | 新增 `api/validation.py`，非法入参统一 400 |
+| 去重逻辑收敛（#31） | 两处发送路径共用 `_plan_dedup()` |
+| 日志模块解耦 | `log.py` 不再依赖 `db`；`DBLogHandler` 移到 `db/log_handler.py` |
+| 清理间隔可配 | `EGO_CLEANUP_INTERVAL`（默认 600s） |
+| 时间基准修正 | `sent_at` 与 `created_at` 统一 UTC |
+
+**注意**：本轮还修了一个长期存在的严重 bug —— 每条消息被**重复投递 3 次**
+（自 v1.1.0 起，`process_message` 重复 emit 下游事件）。详见 `changelog.md`。
+
 ### 待办（v1.4.0 候选）
 
-- 熔断 / 限流的 **WebUI 表单**（目前只有 `/api/resilience` 接口，不能点界面配）
-- Channel-Level Retry（重发只重试失败渠道，不再重发已成功的）
-- Channel-Level Dedup（去重粒度下沉到 message × channel）
-- Multi-Worker 一致性验证（现默认 `WORKER_COUNT=1`，验证后再考虑调大）
-- 系统级测试：并发 / 故障注入 / 长跑压测
+- 结构化日志（JSON formatter + 敏感信息脱敏）
+- 事件总线超时机制（`bus.emit()` 仍是同步阻塞）
+- 类型注解补齐
+- 开放 API（REST 投递 + API Key 认证）
 
 ---
 

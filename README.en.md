@@ -53,17 +53,34 @@ Optionally set `EGO_SECRET_KEY` to customize Flask session key.
 
 ## Configuration Files
 
-Configuration is persisted as JSON files in `config/` directory:
+Configuration lives in two places, with distinct roles:
+
+| Storage | Role |
+|---------|------|
+| SQLite (`ego.db`) | **Runtime source of truth** — all reads/writes go through it |
+| `config/*.json` | **Export / backup medium** — for backup, versioning and migration |
 
 | File | Content |
-|------|------|
+|------|---------|
 | `config/parsers.json` | Parser metadata |
 | `config/sources.json` | Data source definitions |
 | `config/channels.json` | Push channel configurations |
 | `config/templates.json` | Push templates |
 | `config/bindings.json` | Channel bindings (with condition expressions) |
 
-Can directly edit JSON and restart to take effect, or manage via WebUI. System settings (DND, log level, etc.) and runtime data (message logs) are stored in SQLite (`ego.db`).
+**Load rules at startup:**
+
+1. Database **not empty** → the database wins; JSON is not read, and the current
+   config is **written back** to `config/*.json` as a snapshot
+2. Database **empty** and JSON present → import from JSON (first run / migration / restore)
+3. Database empty and no JSON → export the initial config to JSON
+
+So **use the WebUI for day-to-day config changes** (they take effect immediately).
+Hand-editing `config/*.json` is only read on first import when the database is empty —
+it is not the normal path for applying changes.
+
+System settings (DND, log level, etc.), the message log and the queue are also stored in SQLite.
+For backup/restore use **Settings → Backup**, which packages `config/*.json` + `parsers/*.py`.
 
 ## Parsers
 
@@ -146,6 +163,18 @@ Built-in Chinese and English bilingual support, switch languages anytime via lan
 | `LOG_LEVEL` | `INFO` | Log level |
 | `EGO_AUTH_TOKEN` | *(empty)* | Access control Token |
 | `EGO_SECRET_KEY` | *(auto)* | Flask session key |
+| `EGO_INGRESS_WORKERS` | `8` | Ingress worker threads per port source |
+| `EGO_INGRESS_MAX_QUEUE` | `200` | Ingress queue cap; beyond it returns 503 (backpressure) |
+| `EGO_CLEANUP_INTERVAL` | `600` | Interval for purging old messages / dedup keys (s) |
+| `EGO_BREAKER_WINDOW` | `60` | Circuit breaker sliding window (s) |
+| `EGO_BREAKER_MIN_SAMPLES` | `5` | Min samples before the failure-ratio rule applies |
+| `EGO_BREAKER_FAILURE_RATIO` | `0.5` | Failure ratio that trips the breaker |
+| `EGO_BREAKER_CONSECUTIVE` | `5` | Consecutive-failure threshold (low-traffic channels) |
+| `EGO_BREAKER_OPEN_BASE` | `30` | Base cooldown (s), doubles on each open |
+| `EGO_BREAKER_OPEN_MAX` | `600` | Cooldown cap (s) |
+| `EGO_BREAKER_HALF_OPEN_OK` | `3` | Consecutive probe successes needed to recover |
+| `EGO_RATE_MAX_WAIT` | `1.0` | Max wait for a rate-limit token (s), then defer |
+| `EGO_RATE_MISS_TTL` | `30` | Re-check interval for channels without a rate limit (s) |
 
 ## License
 

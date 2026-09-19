@@ -146,6 +146,30 @@ class SQLiteQueueBackend:
         # 超过延迟上限：锁外走正常重试/死信路径
         self.nack(queue_id, f"deferred {dc - 1} times without sending (circuit open / rate limited)")
 
+    def flush_processing_to_dlq(self, reason="shutdown"):
+        """把仍处于 processing 的任务移入死信队列（优雅停机超时兜底）。
+
+        正常情况下 `worker.stop_workers(timeout)` 会等在途任务跑完；
+        超时兜底时把它们落到死信队列，避免消息卡在 processing 状态无人处理。
+        """
+        with self._lock:
+            conn = _conn()
+            rows = conn.execute(
+                "SELECT * FROM message_queue WHERE status='processing'").fetchall()
+            for row in rows:
+                conn.execute(
+                    """INSERT INTO dead_letter_queue
+                       (trace_id, source_id, msg_json, channel_id, template_id,
+                        dedup_key, error, retry_count)
+                       VALUES (?,?,?,?,?,?,?,?)""",
+                    (row["trace_id"], row["source_id"], row["msg_json"],
+                     row["channel_id"], row["template_id"], row["dedup_key"],
+                     str(reason)[:1000], row["retry_count"])
+                )
+                conn.execute("DELETE FROM message_queue WHERE id=?", (row["id"],))
+            conn.commit()
+            return len(rows)
+
     def get_stats(self):
         """返回队列统计信息。"""
         conn = _conn()

@@ -43,6 +43,49 @@
     </table>
     <button type="button" class="btn btn-outline-danger btn-sm" onclick="runCleanup()"><i class="bi bi-trash"></i> {{ _("set.cleanup_now") }}</button>
   </div>
+  <hr>
+  <div class="mb-3">
+    <label class="form-label">{{ _("set.breaker_title") }}</label>
+    <div class="form-text mb-2">{{ _("set.breaker_help") }}</div>
+    <div class="row g-2">
+      <div class="col-md-4">
+        <label class="form-label small mb-1">{{ _("set.breaker_window") }}</label>
+        <input type="number" class="form-control form-control-sm" name="breaker_window" min="1"
+               value="{{ breaker.window }}" placeholder="{{ breaker_defaults.window }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-1">{{ _("set.breaker_min_samples") }}</label>
+        <input type="number" class="form-control form-control-sm" name="breaker_min_samples" min="1"
+               value="{{ breaker.min_samples }}" placeholder="{{ breaker_defaults.min_samples }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-1">{{ _("set.breaker_failure_ratio") }}</label>
+        <input type="number" class="form-control form-control-sm" name="breaker_failure_ratio"
+               min="0" max="1" step="0.05"
+               value="{{ breaker.failure_ratio }}" placeholder="{{ breaker_defaults.failure_ratio }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-1">{{ _("set.breaker_consecutive") }}</label>
+        <input type="number" class="form-control form-control-sm" name="breaker_consecutive" min="1"
+               value="{{ breaker.consecutive }}" placeholder="{{ breaker_defaults.consecutive }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-1">{{ _("set.breaker_open_base") }}</label>
+        <input type="number" class="form-control form-control-sm" name="breaker_open_base" min="1"
+               value="{{ breaker.open_base }}" placeholder="{{ breaker_defaults.open_base }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-1">{{ _("set.breaker_open_max") }}</label>
+        <input type="number" class="form-control form-control-sm" name="breaker_open_max" min="1"
+               value="{{ breaker.open_max }}" placeholder="{{ breaker_defaults.open_max }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-1">{{ _("set.breaker_half_open_ok") }}</label>
+        <input type="number" class="form-control form-control-sm" name="breaker_half_open_ok" min="1"
+               value="{{ breaker.half_open_ok }}" placeholder="{{ breaker_defaults.half_open_ok }}">
+      </div>
+    </div>
+  </div>
   <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> {{ _("set.save") }}</button>
 </form>
 </div></div>

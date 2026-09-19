@@ -136,4 +136,12 @@ def create_app(source_mgr=None):
     app.source_mgr = source_mgr
     app.auth_token = AUTH_TOKEN
 
+    # ── 统一的入参校验错误处理（improvement #27）──
+    # 业务代码里直接 raise ValidationError 即可，无需每处 try/except
+    from api.validation import ValidationError
+
+    @app.errorhandler(ValidationError)
+    def _handle_validation_error(e):
+        return jsonify({"status": "error", "error": str(e)}), 400
+
     return app

@@ -32,7 +32,10 @@ import collections
 import log
 from db.connection import _conn
 
-# ── 可调参数（环境变量覆盖） ──
+# ── 可调参数 ──
+# 取值优先级：system_config（设置页/可直接改库） > 环境变量 > 这里的默认值。
+# 环境变量在模块加载时读一次作为兜底；system_config 支持运行时调整（带 TTL 缓存），
+# 这样用户不必为了改一个阈值重启容器，也不必依赖尚未完备的 API。
 WINDOW_SECONDS = float(os.getenv("EGO_BREAKER_WINDOW", "60"))
 MIN_SAMPLES = int(os.getenv("EGO_BREAKER_MIN_SAMPLES", "5"))
 FAILURE_RATIO = float(os.getenv("EGO_BREAKER_FAILURE_RATIO", "0.5"))
@@ -40,6 +43,64 @@ CONSECUTIVE_THRESHOLD = int(os.getenv("EGO_BREAKER_CONSECUTIVE", "5"))
 OPEN_BASE_SECONDS = float(os.getenv("EGO_BREAKER_OPEN_BASE", "30"))
 OPEN_MAX_SECONDS = float(os.getenv("EGO_BREAKER_OPEN_MAX", "600"))
 HALF_OPEN_NEEDED = int(os.getenv("EGO_BREAKER_HALF_OPEN_OK", "3"))
+
+# system_config 里的键名（设置页用同一批键）
+CONFIG_KEYS = {
+    "window": "breaker_window",
+    "min_samples": "breaker_min_samples",
+    "failure_ratio": "breaker_failure_ratio",
+    "consecutive": "breaker_consecutive",
+    "open_base": "breaker_open_base",
+    "open_max": "breaker_open_max",
+    "half_open_ok": "breaker_half_open_ok",
+}
+
+_PARAM_TTL = float(os.getenv("EGO_BREAKER_PARAM_TTL", "30"))
+_param_cache = {}
+_param_cached_at = 0.0
+_param_lock = threading.Lock()
+
+
+def _read_overrides():
+    """从 system_config 读运行时覆盖值（带 TTL 缓存，避免每次发送都查库）。"""
+    global _param_cached_at
+    now = time.time()
+    with _param_lock:
+        if _param_cache and now - _param_cached_at < _PARAM_TTL:
+            return _param_cache
+        out = {}
+        try:
+            for short, key in CONFIG_KEYS.items():
+                row = _conn().execute(
+                    "SELECT value FROM system_config WHERE key=?", (key,)).fetchone()
+                if row and str(row[0]).strip() != "":
+                    out[short] = str(row[0]).strip()
+        except Exception:
+            out = {}
+        _param_cache.clear()
+        _param_cache.update(out)
+        _param_cached_at = now
+        return _param_cache
+
+
+def param(short, default):
+    """取一个熔断参数：system_config > 环境变量默认值。"""
+    raw = _read_overrides().get(short)
+    if raw is None:
+        return default
+    try:
+        return type(default)(raw)
+    except (TypeError, ValueError):
+        log.logger.warning(f"[Breaker] invalid override {short}={raw!r}, using {default}")
+        return default
+
+
+def invalidate_param_cache():
+    """清掉参数缓存（设置页改完即时生效）。"""
+    global _param_cached_at
+    with _param_lock:
+        _param_cache.clear()
+        _param_cached_at = 0.0
 
 CLOSED, OPEN, HALF_OPEN = "closed", "open", "half_open"
 
@@ -97,10 +158,11 @@ class CircuitBreaker:
     def _cooldown(self, st):
         """本次 OPEN 的冷却时长（指数退避，封顶 OPEN_MAX_SECONDS）。"""
         n = max(0, st.open_count - 1)
-        return min(OPEN_BASE_SECONDS * (2 ** n), OPEN_MAX_SECONDS)
+        return min(param("open_base", OPEN_BASE_SECONDS) * (2 ** n),
+                   param("open_max", OPEN_MAX_SECONDS))
 
     def _evict(self, st, now):
-        cutoff = now - WINDOW_SECONDS
+        cutoff = now - param("window", WINDOW_SECONDS)
         w = st.window
         while w and w[0][0] < cutoff:
             w.popleft()
@@ -194,7 +256,7 @@ class CircuitBreaker:
             if st.state == HALF_OPEN:
                 if ok:
                     st.half_open_ok += 1
-                    if st.half_open_ok >= HALF_OPEN_NEEDED:
+                    if st.half_open_ok >= param("half_open_ok", HALF_OPEN_NEEDED):
                         st.state = CLOSED
                         st.open_count = 0
                         st.half_open_ok = 0
@@ -212,14 +274,15 @@ class CircuitBreaker:
             st.window.append((now, not ok))
             self._evict(st, now)
 
-            if not ok and st.consecutive_fail >= CONSECUTIVE_THRESHOLD:
+            if not ok and st.consecutive_fail >= param("consecutive", CONSECUTIVE_THRESHOLD):
                 self._open(st, channel_id, now,
                            f"{st.consecutive_fail} consecutive failures")
                 return
 
             total = len(st.window)
             fails = sum(1 for _, f in st.window if f)
-            if total >= MIN_SAMPLES and fails / total > FAILURE_RATIO:
+            if (total >= param("min_samples", MIN_SAMPLES)
+                    and fails / total > param("failure_ratio", FAILURE_RATIO)):
                 self._open(st, channel_id, now, f"failure ratio {fails}/{total}")
 
     def reset(self, channel_id):

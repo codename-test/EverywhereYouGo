@@ -499,12 +499,38 @@ def mark_ignored(msg_id):
     _conn().commit()
 
 
-def check_dedup(dedup_key, window_seconds):
+def dedup_hit(channel_id, dedup_key, window_seconds):
+    """该通道在窗口内是否已成功发过同一个去重键。
+
+    去重粒度是 **message × channel**：不同通道各用各的键、各算各的窗口，
+    互不影响。旧实现是"整条消息一个键"，任一通道命中就把整条消息丢掉，
+    且只取第一个配了去重表达式的绑定的键（其余绑定被忽略）。
+    """
     r = _conn().execute(
-        "SELECT COUNT(*) FROM message_log WHERE dedup_key=? AND status='SUCCESS' AND sent_at > datetime('now','-'||?||' seconds')",
-        (dedup_key, str(window_seconds))
+        "SELECT COUNT(*) FROM dedup_keys WHERE channel_id=? AND dedup_key=? "
+        "AND sent_at > datetime('now','-'||?||' seconds')",
+        (channel_id, dedup_key, str(int(window_seconds)))
     ).fetchone()
     return r[0] > 0
+
+
+def dedup_record(channel_id, dedup_key):
+    """记录一次成功发送的去重键（供后续窗口判定）。"""
+    _conn().execute(
+        "INSERT INTO dedup_keys (channel_id, dedup_key) VALUES (?,?)",
+        (channel_id, dedup_key)
+    )
+    _conn().commit()
+
+
+def dedup_purge(keep_seconds=7 * 86400):
+    """清理过老的去重键（窗口远小于保留期，保留 7 天足够）。"""
+    cur = _conn().execute(
+        "DELETE FROM dedup_keys WHERE sent_at < datetime('now','-'||?||' seconds')",
+        (str(int(keep_seconds)),)
+    )
+    _conn().commit()
+    return cur.rowcount
 
 
 def get_queue_stats():
@@ -596,6 +622,62 @@ def set_log_level(level):
 # ═══════════════════════════════════════════════
 #  Stats
 # ═══════════════════════════════════════════════
+
+def get_channel_stats(hours=24):
+    """按渠道聚合最近的发送结果（供 /api/metrics）。
+
+    从 message_log.channel_results（JSON 数组）里数每个渠道的尝试次数与成功次数。
+    窗口内条数有限（自管理场景），在 Python 侧解析即可，不必上 JSON 扩展查询。
+    """
+    rows = _conn().execute(
+        "SELECT channel_results FROM message_log "
+        "WHERE channel_results IS NOT NULL AND channel_results NOT IN ('','[]') "
+        "AND created_at > datetime('now','-'||?||' hours')",
+        (str(int(hours)),)
+    ).fetchall()
+
+    stats = {}
+    for r in rows:
+        try:
+            items = json.loads(r["channel_results"] or "[]")
+        except Exception:
+            continue
+        for item in items:
+            cid = item.get("channel_id")
+            key = cid if cid is not None else (item.get("ch_name") or "?")
+            s = stats.setdefault(str(key), {
+                "channel_id": cid, "name": item.get("ch_name", "?"),
+                "type": item.get("ch_type", ""), "attempts": 0, "ok": 0,
+            })
+            s["attempts"] += 1
+            if item.get("ok"):
+                s["ok"] += 1
+
+    out = list(stats.values())
+    for s in out:
+        s["success_rate"] = round(s["ok"] / s["attempts"], 4) if s["attempts"] else None
+    out.sort(key=lambda x: str(x["channel_id"]))
+    return out
+
+
+def get_latency_stats(hours=24):
+    """端到端延迟（created_at → sent_at，单位秒）。两者都是 UTC。"""
+    row = _conn().execute(
+        "SELECT AVG((julianday(sent_at)-julianday(created_at))*86400.0) avg_s, "
+        "       MAX((julianday(sent_at)-julianday(created_at))*86400.0) max_s, "
+        "       COUNT(*) n "
+        "FROM message_log WHERE sent_at IS NOT NULL "
+        "AND created_at > datetime('now','-'||?||' hours')",
+        (str(int(hours)),)
+    ).fetchone()
+    if not row or not row["n"]:
+        return {"samples": 0, "avg_seconds": None, "max_seconds": None}
+    return {
+        "samples": row["n"],
+        "avg_seconds": round(row["avg_s"], 3) if row["avg_s"] is not None else None,
+        "max_seconds": round(row["max_s"], 3) if row["max_s"] is not None else None,
+    }
+
 
 def get_stats():
     qs = get_queue_stats()

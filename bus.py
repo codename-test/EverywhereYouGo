@@ -3,6 +3,22 @@
 """
 EGo 事件总线 — 基于 blinker 的同步信号系统。
 所有模块通过总线通信，降低耦合度。
+
+消息生命周期（单向、按序触发）：
+
+    message.received   source_manager.process_message 发出，进入全链路
+        ↓
+    message.parsed     parser_engine 解析成功
+        ↓
+    message.routed     router_engine 路由匹配完成（携带 matched_channels）
+        ↓
+    message.sending    sender_engine 进入发送阶段（已入队 / 开始直发）
+        ↓
+    message.sent       全部通道发送成功（终态）
+    message.failed     任一环节失败：解析失败（stage="parse"）/ 发送失败（stage="send"）
+
+注意：**只有事件链一处驱动**，`process_message` 不再重复 emit 下游事件
+（历史上曾因此导致每条消息被投递 3 次，见 tests/test_event_chain.py）。
 """
 
 from blinker import Namespace
