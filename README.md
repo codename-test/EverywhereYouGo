@@ -1,4 +1,4 @@
-# EverywhereYouGo (EGo) v1.2.4
+# EverywhereYouGo (EGo) v1.3.0
 
 [English](README.en.md) | 中文
 

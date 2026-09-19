@@ -4,6 +4,84 @@
 
 ---
 
+## v1.3.0（2026-07-28）
+
+> 主题：**工程收口** —— 从「功能实现」转向「异常情况下是否可靠」。
+> 可靠性 + 入口并发 + 一个让重试形同失效的时区 bug。
+
+### 可靠性（本轮重点）
+
+- 🆕 **通道熔断（#19）** `circuit_breaker.py`：CLOSED / OPEN / HALF_OPEN 三态机。
+  - 滑动窗口 60s 内失败率 > 50%（样本数 ≥ 5）**或**连续失败 ≥ 5 → 熔断（后者照顾低频通道）
+  - OPEN 冷却指数退避 30→60→120→240→480→600s（封顶 10min）
+  - HALF_OPEN 连续 3 次探测成功才恢复 CLOSED，恢复后退避计数归零
+  - **4xx 不计失败**，只对 5xx / 超时 / 连接类错误计数
+  - 状态持久化 `channel_breaker` 表，重启后自动恢复
+  - 参数由 `EGO_BREAKER_*` 环境变量覆盖；`GET /api/resilience` 可查，支持手工 reset
+- 🆕 **出站限流（#21）** `rate_limiter.py`：每通道独立令牌桶（条/分钟）。
+  - 桶容量 = 1 分钟额度（允许小幅突发）
+  - `acquire()` 最多等 1s，拿不到令牌就**延迟重排**，不长阻塞 worker 线程
+  - 配置存 `channel_rate_limit` 表；缓存带 30s TTL 回查，直接改库也能自愈
+- 🆕 **延迟重排** `queue_backend.defer()`：熔断 / 限流期间把任务放回队列，
+  但**不消耗重试次数**——否则故障期内消息会被重试耗尽、直接跌进死信队列。
+  超过 50 次仍发不出去，才交回正常重试 / DLQ 路径。
+
+> 为什么限流不能靠 Retry 兜底：发送过快 → 429 → 重试 → 再次 429。
+> 限流必须位于 `Worker → Rate Limiter → Channel`（Nginx 只管入站，管不到出站）。
+
+### 入口并发
+
+- 🆕 **端口数据源入口并发** `source_listener/__init__.py`：单线程 `HTTPServer`
+  → 固定大小工作线程池（`_IngressPool` + `_ThreadPoolHTTPServer`）。
+  原实现下同一数据源的请求被**串行**处理，一个慢解析器会阻塞该数据源上所有后续请求。
+  - 线程复用 → `threading.local()` 的 DB 连接随之复用，不再每请求新建 SQLite 连接
+  - 队列满回 503 做背压，不无限堆积
+  - 新增 `EGO_INGRESS_WORKERS`（默认 8）、`EGO_INGRESS_MAX_QUEUE`（默认 200）
+- `request_queue_size = 128`：默认仅 5，突发时内核会拒掉多余连接，客户端只能等
+  TCP SYN 重传（实测表现为 ~1.1s 长尾）。
+- `stop_source()` 补 `server_close()`：原来只 `shutdown()`，监听 socket 与线程池不释放。
+
+> **范围说明**：路径路由入口（`/in/...`）本就并发（`run_simple(threaded=True)`），不在此列。
+> **实测结论**：并发 8 时 p50 由 127ms 降至 21ms；**但加线程并不提升吞吐**——
+> 吞吐受单进程串行段限制，线程池的价值是「慢请求不阻塞其它请求」，故默认值取 8 而非更大。
+
+### 性能
+
+- **SQLite 调优 pragma**：`db/connection.py` 补 `synchronous=NORMAL` + `cache_size=-64000`。
+  实测单次 commit 由 **6.98ms → 0.02ms（约 350×）**，整机吞吐（并发 8）由 **31 → 322 req/s（约 10×）**。
+  代价：掉电可能丢最后若干条已提交事务（库本身仍保持一致）。
+
+### Bug 修复
+
+- 🔴 **重试被推迟约 8 小时（时区基准错误）**
+  `queue_backend.nack()` 用 Python `datetime.now()`（本地时间）写 `next_retry_at`，
+  而 `dequeue()` 比较的是 SQLite `datetime('now')`（**UTC**）。
+  在 UTC+8 等非 UTC 时区部署下，退避时间比当前 UTC 晚 8 小时 → 重试实际被推迟约 8 小时，
+  **等于重试机制失效**。改用 `datetime('now', '+N seconds')`，两侧统一为 UTC。
+  `defer()` 同样处理。回归测试：`tests/test_queue_defer.py::test_retry_due_time_uses_utc_not_local`。
+
+### API
+
+- 🆕 韧性接口（`api/system.py`）：
+  - `GET  /api/resilience` — 熔断状态 + 限流配置
+  - `POST /api/resilience/rate_limit/<channel_id>` — 设置限流（条/分钟，0 = 不限）
+  - `POST /api/resilience/breaker/<channel_id>/reset` — 手工恢复熔断通道
+
+### 测试
+
+- 新增 29 例（102 → **131 passed**）：入口并发 3、熔断 13、限流 9、队列延迟重排 4。
+
+### 工程（工具链）
+
+- 🆕 `skills/ego_deploy/deploy.py`：测试环境**非破坏同步**
+  （按 md5 只写变化文件、**永不删除**、排除 `config/`/`certs/`/`ego.db*`），替代原 `rm -rf` + `cp -r`。
+- 🔴 修 `ego_deploy` 的**「重启」空操作**：原用 `ps | grep 目录名` 定位进程，但 busybox 的 `ps`
+  命令行**不含工作目录**，永远匹配到空列表 → 不 kill、只新起一个抢不到端口的进程，
+  **旧进程继续跑旧代码，脚本却报「已重启成功」**。改用扫描 `/proc/<pid>/cwd` + 核对 cmdline，
+  并强制校验 **PID 必须变化**，否则明确报错。
+
+---
+
 ## v1.2.4（2026-07-28）
 
 ### 部署配置重构（deploy/）

@@ -116,3 +116,40 @@ def api_dlq_delete(dlq_id):
     """删除一条死信记录。"""
     get_backend().delete_dlq(dlq_id)
     return jsonify({"status": "ok"})
+
+
+# ── 韧性：熔断 + 出站限流 ──
+
+@system_bp.route("/api/resilience", methods=["GET"])
+def api_resilience():
+    """通道熔断状态 + 出站限流配置。"""
+    from circuit_breaker import get_breaker
+    from rate_limiter import get_limiter
+    return jsonify({
+        "breaker": get_breaker().snapshot(),
+        "rate_limits": get_limiter().snapshot(),
+    })
+
+
+@system_bp.route("/api/resilience/breaker/<int:channel_id>/reset", methods=["POST"])
+def api_breaker_reset(channel_id):
+    """手工恢复被熔断的通道。"""
+    from circuit_breaker import get_breaker
+    get_breaker().reset(channel_id)
+    return jsonify({"status": "ok"})
+
+
+@system_bp.route("/api/resilience/rate_limit/<int:channel_id>", methods=["POST"])
+def api_rate_limit_set(channel_id):
+    """设置通道出站限流（条/分钟），0 = 不限流。"""
+    from rate_limiter import get_limiter
+    data = request.get_json(silent=True) or {}
+    raw = data.get("per_minute", 0)
+    try:
+        per_minute = int(raw)
+    except (TypeError, ValueError):
+        return jsonify({"status": "error", "error": "per_minute must be an integer"}), 400
+    if per_minute < 0:
+        return jsonify({"status": "error", "error": "per_minute must be >= 0"}), 400
+    get_limiter().set_rate(channel_id, per_minute)
+    return jsonify({"status": "ok", "channel_id": channel_id, "per_minute": per_minute})

@@ -36,6 +36,17 @@ def _worker_loop(worker_id=0):
         try:
             ok, result = sender_engine.process_queue_item(item)
 
+            # 熔断 / 限流：延迟重排 —— 不消耗重试次数，也不计入通道结果
+            # （「没轮到我发」不是发送失败，不应把消息推向死信队列）
+            if result and result.get("deferred"):
+                delay = result.get("defer_seconds", 5)
+                queue.defer(item["id"], delay)
+                log.logger.debug(
+                    f"[Worker-{worker_id}] Deferred {trace_id}/{ch_name} by {delay}s: "
+                    f"{result.get('error')}"
+                )
+                continue
+
             if ok:
                 queue.ack(item["id"])
             else:

@@ -16,8 +16,14 @@ import log
 import db
 import bus
 import renderer
+import circuit_breaker
+import rate_limiter
 from channel_loader import create_channel
 from queue_backend import get_backend
+
+# 熔断/限流命中时的延迟重排间隔（秒）——不消耗重试次数，见 queue_backend.defer()
+CIRCUIT_DEFER_SECONDS = 10
+RATE_DEFER_SECONDS = 5
 
 
 def _on_message_routed(sender, *, trace_id, source_id, msg, matched_channels):
@@ -87,6 +93,18 @@ def process_queue_item(item):
     ch_name = ch["name"]
     ch_type = ch["type"]
 
+    # 熔断闸门：通道处于 OPEN 时直接延迟重排，不消耗重试次数
+    # （故障期内让消息留在队列里等恢复，而不是被重试耗尽跌进死信队列）
+    breaker = circuit_breaker.get_breaker()
+    allowed, reason = breaker.should_allow(channel_id)
+    if not allowed:
+        log.logger.warning(f"[{trace_id}] Circuit open for {ch_name} ({reason}), deferring")
+        return False, {
+            "ch_name": ch_name, "ch_type": ch_type, "ok": False,
+            "error": f"Circuit open: {reason}",
+            "deferred": True, "defer_seconds": CIRCUIT_DEFER_SECONDS,
+        }
+
     # 解析消息
     try:
         msg = json.loads(msg_json) if isinstance(msg_json, str) else msg_json
@@ -111,11 +129,22 @@ def process_queue_item(item):
             "ok": False, "error": f"Render: {str(e)[:200]}"
         }
 
+    # 出站限流：拿不到令牌就延迟重排（令牌在"即将真正发送"时才取）
+    limiter = rate_limiter.get_limiter()
+    if not limiter.acquire(channel_id):
+        log.logger.info(f"[{trace_id}] Rate limited on {ch_name}, deferring")
+        return False, {
+            "ch_name": ch_name, "ch_type": ch_type, "ok": False,
+            "error": f"Rate limited (limit {limiter.get_rate(channel_id)}/min)",
+            "deferred": True, "defer_seconds": RATE_DEFER_SECONDS,
+        }
+
     # 发送
     try:
         ch_config = json.loads(ch["config"]) if isinstance(ch["config"], str) else ch["config"]
         channel = create_channel(ch_type, ch_config)
         ok, err = channel.send(rendered["title"], rendered["content"])
+        breaker.record(channel_id, ok, err or "")
         if ok:
             log.logger.info(f"[{trace_id}] Sent via {ch_name}")
             return True, {
@@ -128,6 +157,7 @@ def process_queue_item(item):
                 "ok": False, "error": err or "Send returned False"
             }
     except Exception as e:
+        breaker.record(channel_id, False, str(e))
         log.logger.error(f"[{trace_id}] Send error ({ch_name}): {e}")
         return False, {
             "ch_name": ch_name, "ch_type": ch_type,

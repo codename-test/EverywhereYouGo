@@ -96,17 +96,18 @@ class SQLiteQueueBackend:
                 )
             else:
                 # 计算下次重试时间（指数退避）
+                # 注意：必须用 SQLite 的 datetime('now') 做基准——它返回 UTC，
+                # 与 dequeue() 的比较条件一致。原先用 Python 的 datetime.now()
+                # （本地时间）写入，在 UTC+8 等时区下会让重试被推迟约 8 小时。
                 delay = RETRY_DELAYS[min(retry_count - 1, len(RETRY_DELAYS) - 1)]
-                next_retry = (
-                    datetime.datetime.now() + datetime.timedelta(seconds=delay)
-                ).strftime("%Y-%m-%d %H:%M:%S")
 
                 conn.execute(
                     """UPDATE message_queue
-                       SET status='pending', retry_count=?, next_retry_at=?,
+                       SET status='pending', retry_count=?,
+                           next_retry_at=datetime('now', ?),
                            last_error=?
                        WHERE id=?""",
-                    (retry_count, next_retry, str(error)[:500], queue_id)
+                    (retry_count, f"+{int(delay)} seconds", str(error)[:500], queue_id)
                 )
                 log.logger.info(
                     f"[{row['trace_id']}] Retry {retry_count}/{max_retries} "
@@ -114,6 +115,36 @@ class SQLiteQueueBackend:
                 )
 
             conn.commit()
+
+    def defer(self, queue_id, delay_seconds=5, max_defers=50):
+        """延迟重排：放回队列但**不消耗重试次数**。
+
+        用于熔断（circuit open）与限流（rate limited）期间的等待——
+        这类「没轮到我发」不应算作发送失败，否则消息会在故障期内被耗尽重试次数，
+        直接跌进死信队列。
+
+        超过 max_defers 次仍未能发出，则交回正常重试/DLQ 路径处理，
+        避免故障通道让队列无限堆积。
+        """
+        with self._lock:
+            conn = _conn()
+            row = conn.execute(
+                "SELECT defer_count FROM message_queue WHERE id=?", (queue_id,)
+            ).fetchone()
+            if not row:
+                return
+            dc = (row["defer_count"] or 0) + 1
+            if dc <= max_defers:
+                # 基准同样用 SQLite 的 datetime('now')（UTC），与 dequeue() 比较条件一致
+                conn.execute(
+                    "UPDATE message_queue SET status='pending', defer_count=?, "
+                    "next_retry_at=datetime('now', ?) WHERE id=?",
+                    (dc, f"+{int(delay_seconds)} seconds", queue_id)
+                )
+                conn.commit()
+                return
+        # 超过延迟上限：锁外走正常重试/死信路径
+        self.nack(queue_id, f"deferred {dc - 1} times without sending (circuit open / rate limited)")
 
     def get_stats(self):
         """返回队列统计信息。"""

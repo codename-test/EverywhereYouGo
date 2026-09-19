@@ -31,7 +31,7 @@ import version_checker  # 版本检查
 import worker           # 异步发送 worker
 from web_ui import run_web_ui, has_ssl, ssl_enabled_by_env, app as web_app
 
-VERSION = "1.2.4"
+VERSION = "1.3.0"
 AUTHOR = "codename-test"
 DESCRIPTION = "EverywhereYouGo (EGo) — 通用信息转发平台"
 
@@ -111,6 +111,11 @@ def init_ego():
     log.logger.info(f"Log level: {log_level}")
 
     # 3. 启动异步发送 worker（恢复崩溃遗留任务 + 开始消费队列）
+    #    先恢复熔断状态与限流配置，再放 worker 出笼
+    import circuit_breaker
+    import rate_limiter
+    circuit_breaker.get_breaker().load()
+    rate_limiter.get_limiter().load()
     worker.start_workers()
 
     # 4. 启动所有数据源监听

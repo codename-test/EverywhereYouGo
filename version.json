@@ -1,13 +1,14 @@
 {
-  "version": "1.2.4",
+  "version": "1.3.0",
   "release_date": "2026-07-28",
   "url": "https://github.com/codename-test/EverywhereYouGo/releases/latest",
   "changelog": [
-    "T4 证书方案重构：certbot 改用 acme.sh + Cloudflare DNS 验证（无需 80 端口）",
-    "证书分离：EGo 5001 恒用 Flask 自签名证书，nginx(T3/T4) 独立使用真实证书",
-    "一键脚本 init.sh 支持中英双语，T3/T4 增加端口占用检测与自定义",
-    "deploy/README 增补证书规则说明与 T4 续签运维操作",
-    "修复解析器/通道插件上传及 <filename> 路由的路径穿越（#22a）",
-    "build.py 镜像名/版本/部署示例修正"
+    "通道熔断（#19）：三态机 + 滑动窗口 + 指数退避 30→600s + 4xx 不计失败 + 状态持久化",
+    "出站限流（#21）：每通道独立令牌桶，拿不到令牌延迟重排而非阻塞 worker",
+    "延迟重排：熔断/限流期间消息放回队列但不消耗重试次数，避免故障期耗尽重试跌入死信",
+    "入口并发：端口数据源单线程 HTTPServer → 固定线程池（慢请求不再阻塞其它请求）",
+    "性能：SQLite synchronous=NORMAL，单次 commit 6.98ms→0.02ms，吞吐 31→322 req/s",
+    "修复重试被推迟 8 小时：nack 用本地时间写 next_retry_at，与 SQLite UTC 基准不一致",
+    "韧性 API：GET /api/resilience、限流设置、熔断重置"
   ]
 }
