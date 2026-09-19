@@ -118,7 +118,10 @@ Supports `and`, `or`, parentheses grouping:
 Set DND time period, messages enter queue and wait, automatically flush when period ends. Urgent routes are not affected by DND.
 
 ### Message Deduplication
-Channel bindings can configure `dedup_key_expr` and `dedup_window` (default 3600 seconds). Same dedup key will not be sent repeatedly within the window.
+Deduplication granularity is **message × channel**: each channel binding has its own
+`dedup_key_expr` and `dedup_window` (default 3600 seconds), independent of the others.
+A channel that hits is skipped while the rest still send; the whole message is marked
+`DISCARDED` only when **every** channel hits.
 
 ### Parallel Push
 When multiple channels match, thread pool sends in parallel, total latency depends on the slowest single channel.
@@ -127,12 +130,55 @@ When multiple channels match, thread pool sends in parallel, total latency depen
 Each data source automatically saves the last 20 request samples, can select samples in WebUI for test parsing and pushing.
 
 ### Message Resend
-Failed messages support original resend (using parsed msg_json) or re-parse and resend.
+Failed messages support original resend (using the parsed msg_json) or re-parse and resend.
+By default **only the channels that failed are retried** — already-succeeded channels are
+not pushed a second time. Use `scope=all` to force a full re-push.
 
 ### Import & Export
 - **Backup**: Download ZIP package (`config/*.json` + `parsers/*.py`)
 - **Restore**: Upload ZIP package, automatically takes effect after overwriting configuration
 - **JSON Import**: Supports dry_run preview, insert/overwrite two modes, dependency check
+
+### Channel Circuit Breaker
+Automatically isolates a channel that keeps failing, so one broken third party cannot
+drag down the whole send path:
+
+- Failure ratio > 50% within a sliding window (default 60s), **or** 5 consecutive
+  failures → trip
+- Cooldown backs off exponentially: 30 → 60 → 120 → … → 600 s (capped at 10 min)
+- After cooldown it enters half-open probing; 3 consecutive successes restore it
+- **4xx does not count as failure** (a business rejection is not a service outage) —
+  only 5xx / timeouts / connection errors are counted
+- While tripped, messages **stay queued**: no retry budget is consumed and nothing is
+  dropped. State is persisted and survives restarts.
+
+### Outbound Rate Limiting
+Per-channel rate limit (messages per minute) to avoid getting blocked by the remote side.
+Retries cannot fix a 429 — limiting has to happen **before** sending. A message that
+cannot get a token waits in the queue instead of being dropped.
+
+### Resilience UI
+| Where | What you can do |
+|-------|-----------------|
+| Channel list → **Resilience column** | See the rate-limit badge and breaker countdown; reset a tripped channel with one click |
+| Channel edit dialog | Set this channel's outbound rate limit (empty/0 = unlimited) |
+| Settings → **Resilience (channel circuit breaker)** | Hand-tune sliding window, consecutive-failure threshold, cooldown base/cap, probe count, etc. |
+
+Parameter precedence: `system_config` (settings page / direct DB edit) > environment
+variable > built-in default. Changes take effect immediately, no restart needed.
+
+### Observability
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/metrics` | Queue depth, DLQ count, per-channel success rate, end-to-end latency, breaker & rate-limit state; `?hours=N` sets the stats window (default 24h) |
+| `GET /api/resilience` | Channels currently tripped / rate-limited |
+| `GET /api/queue/stats` | Queue and dead-letter counts |
+| `GET /api/health` | Health check (SQLite / disk / config / queue) |
+
+### Graceful Stop
+On `SIGTERM` EGo stops accepting new messages first, then waits for in-flight tasks
+(up to 30 seconds); anything unfinished is moved to the dead-letter queue — a container
+restart does not lose messages.
 
 ## Internationalization
 
