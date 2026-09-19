@@ -1,4 +1,4 @@
-# EverywhereYouGo (EGo) v1.2.4
+# EverywhereYouGo (EGo) v1.3.0
 
 [中文](README.md) | English
 
@@ -53,17 +53,34 @@ Optionally set `EGO_SECRET_KEY` to customize Flask session key.
 
 ## Configuration Files
 
-Configuration is persisted as JSON files in `config/` directory:
+Configuration lives in two places, with distinct roles:
+
+| Storage | Role |
+|---------|------|
+| SQLite (`ego.db`) | **Runtime source of truth** — all reads/writes go through it |
+| `config/*.json` | **Export / backup medium** — for backup, versioning and migration |
 
 | File | Content |
-|------|------|
+|------|---------|
 | `config/parsers.json` | Parser metadata |
 | `config/sources.json` | Data source definitions |
 | `config/channels.json` | Push channel configurations |
 | `config/templates.json` | Push templates |
 | `config/bindings.json` | Channel bindings (with condition expressions) |
 
-Can directly edit JSON and restart to take effect, or manage via WebUI. System settings (DND, log level, etc.) and runtime data (message logs) are stored in SQLite (`ego.db`).
+**Load rules at startup:**
+
+1. Database **not empty** → the database wins; JSON is not read, and the current
+   config is **written back** to `config/*.json` as a snapshot
+2. Database **empty** and JSON present → import from JSON (first run / migration / restore)
+3. Database empty and no JSON → export the initial config to JSON
+
+So **use the WebUI for day-to-day config changes** (they take effect immediately).
+Hand-editing `config/*.json` is only read on first import when the database is empty —
+it is not the normal path for applying changes.
+
+System settings (DND, log level, etc.), the message log and the queue are also stored in SQLite.
+For backup/restore use **Settings → Backup**, which packages `config/*.json` + `parsers/*.py`.
 
 ## Parsers
 
@@ -101,7 +118,10 @@ Supports `and`, `or`, parentheses grouping:
 Set DND time period, messages enter queue and wait, automatically flush when period ends. Urgent routes are not affected by DND.
 
 ### Message Deduplication
-Channel bindings can configure `dedup_key_expr` and `dedup_window` (default 3600 seconds). Same dedup key will not be sent repeatedly within the window.
+Deduplication granularity is **message × channel**: each channel binding has its own
+`dedup_key_expr` and `dedup_window` (default 3600 seconds), independent of the others.
+A channel that hits is skipped while the rest still send; the whole message is marked
+`DISCARDED` only when **every** channel hits.
 
 ### Parallel Push
 When multiple channels match, thread pool sends in parallel, total latency depends on the slowest single channel.
@@ -110,12 +130,55 @@ When multiple channels match, thread pool sends in parallel, total latency depen
 Each data source automatically saves the last 20 request samples, can select samples in WebUI for test parsing and pushing.
 
 ### Message Resend
-Failed messages support original resend (using parsed msg_json) or re-parse and resend.
+Failed messages support original resend (using the parsed msg_json) or re-parse and resend.
+By default **only the channels that failed are retried** — already-succeeded channels are
+not pushed a second time. Use `scope=all` to force a full re-push.
 
 ### Import & Export
 - **Backup**: Download ZIP package (`config/*.json` + `parsers/*.py`)
 - **Restore**: Upload ZIP package, automatically takes effect after overwriting configuration
 - **JSON Import**: Supports dry_run preview, insert/overwrite two modes, dependency check
+
+### Channel Circuit Breaker
+Automatically isolates a channel that keeps failing, so one broken third party cannot
+drag down the whole send path:
+
+- Failure ratio > 50% within a sliding window (default 60s), **or** 5 consecutive
+  failures → trip
+- Cooldown backs off exponentially: 30 → 60 → 120 → … → 600 s (capped at 10 min)
+- After cooldown it enters half-open probing; 3 consecutive successes restore it
+- **4xx does not count as failure** (a business rejection is not a service outage) —
+  only 5xx / timeouts / connection errors are counted
+- While tripped, messages **stay queued**: no retry budget is consumed and nothing is
+  dropped. State is persisted and survives restarts.
+
+### Outbound Rate Limiting
+Per-channel rate limit (messages per minute) to avoid getting blocked by the remote side.
+Retries cannot fix a 429 — limiting has to happen **before** sending. A message that
+cannot get a token waits in the queue instead of being dropped.
+
+### Resilience UI
+| Where | What you can do |
+|-------|-----------------|
+| Channel list → **Resilience column** | See the rate-limit badge and breaker countdown; reset a tripped channel with one click |
+| Channel edit dialog | Set this channel's outbound rate limit (empty/0 = unlimited) |
+| Settings → **Resilience (channel circuit breaker)** | Hand-tune sliding window, consecutive-failure threshold, cooldown base/cap, probe count, etc. |
+
+Parameter precedence: `system_config` (settings page / direct DB edit) > environment
+variable > built-in default. Changes take effect immediately, no restart needed.
+
+### Observability
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/metrics` | Queue depth, DLQ count, per-channel success rate, end-to-end latency, breaker & rate-limit state; `?hours=N` sets the stats window (default 24h) |
+| `GET /api/resilience` | Channels currently tripped / rate-limited |
+| `GET /api/queue/stats` | Queue and dead-letter counts |
+| `GET /api/health` | Health check (SQLite / disk / config / queue) |
+
+### Graceful Stop
+On `SIGTERM` EGo stops accepting new messages first, then waits for in-flight tasks
+(up to 30 seconds); anything unfinished is moved to the dead-letter queue — a container
+restart does not lose messages.
 
 ## Internationalization
 
@@ -146,6 +209,18 @@ Built-in Chinese and English bilingual support, switch languages anytime via lan
 | `LOG_LEVEL` | `INFO` | Log level |
 | `EGO_AUTH_TOKEN` | *(empty)* | Access control Token |
 | `EGO_SECRET_KEY` | *(auto)* | Flask session key |
+| `EGO_INGRESS_WORKERS` | `8` | Ingress worker threads per port source |
+| `EGO_INGRESS_MAX_QUEUE` | `200` | Ingress queue cap; beyond it returns 503 (backpressure) |
+| `EGO_CLEANUP_INTERVAL` | `600` | Interval for purging old messages / dedup keys (s) |
+| `EGO_BREAKER_WINDOW` | `60` | Circuit breaker sliding window (s) |
+| `EGO_BREAKER_MIN_SAMPLES` | `5` | Min samples before the failure-ratio rule applies |
+| `EGO_BREAKER_FAILURE_RATIO` | `0.5` | Failure ratio that trips the breaker |
+| `EGO_BREAKER_CONSECUTIVE` | `5` | Consecutive-failure threshold (low-traffic channels) |
+| `EGO_BREAKER_OPEN_BASE` | `30` | Base cooldown (s), doubles on each open |
+| `EGO_BREAKER_OPEN_MAX` | `600` | Cooldown cap (s) |
+| `EGO_BREAKER_HALF_OPEN_OK` | `3` | Consecutive probe successes needed to recover |
+| `EGO_RATE_MAX_WAIT` | `1.0` | Max wait for a rate-limit token (s), then defer |
+| `EGO_RATE_MISS_TTL` | `30` | Re-check interval for channels without a rate limit (s) |
 
 ## License
 

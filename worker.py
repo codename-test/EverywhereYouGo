@@ -16,6 +16,7 @@ POLL_INTERVAL = 0.1  # 队列空时轮询间隔（秒）
 WORKER_COUNT = 1     # worker 线程数（SQLite 建议 1，Redis 可多开）
 
 _running = True
+_threads = []
 
 
 def _worker_loop(worker_id=0):
@@ -35,6 +36,21 @@ def _worker_loop(worker_id=0):
 
         try:
             ok, result = sender_engine.process_queue_item(item)
+
+            # 补上 channel_id：渠道级重发（只重发失败渠道）需要它来定位通道
+            if result and not result.get("deferred"):
+                result.setdefault("channel_id", item.get("channel_id"))
+
+            # 熔断 / 限流：延迟重排 —— 不消耗重试次数，也不计入通道结果
+            # （「没轮到我发」不是发送失败，不应把消息推向死信队列）
+            if result and result.get("deferred"):
+                delay = result.get("defer_seconds", 5)
+                queue.defer(item["id"], delay)
+                log.logger.debug(
+                    f"[Worker-{worker_id}] Deferred {trace_id}/{ch_name} by {delay}s: "
+                    f"{result.get('error')}"
+                )
+                continue
 
             if ok:
                 queue.ack(item["id"])
@@ -63,6 +79,7 @@ def start_workers(count=None):
     queue = get_backend()
     queue.recover_processing()  # 恢复崩溃遗留任务
 
+    _threads.clear()
     for i in range(n):
         t = threading.Thread(
             target=_worker_loop,
@@ -71,12 +88,41 @@ def start_workers(count=None):
             name=f"worker-{i}"
         )
         t.start()
+        _threads.append(t)
 
     log.logger.info(f"Started {n} worker thread(s)")
 
 
-def stop_workers():
-    """通知 worker 停止（等待当前任务完成）。"""
+def stop_workers(timeout=30):
+    """优雅停机：停止消费 → 等在途任务完成（超时兜底）→ 未完成的刷入死信队列。
+
+    旧实现只置 `_running=False` 就返回，进程随即退出，在途任务会卡在
+    processing 状态。这里补上 join 与兜底，保证「重启不丢消息」。
+
+    Args:
+        timeout: 等待在途任务完成的上限（秒）
+    """
     global _running
     _running = False
     log.logger.info("Workers stopping...")
+
+    deadline = time.time() + timeout
+    for t in _threads:
+        t.join(timeout=max(0.0, deadline - time.time()))
+    alive = [t.name for t in _threads if t.is_alive()]
+
+    moved = 0
+    try:
+        moved = get_backend().flush_processing_to_dlq(
+            "shutdown: worker did not finish within %ss" % timeout)
+    except Exception as e:
+        log.logger.error(f"Failed to flush in-flight items: {e}")
+
+    if alive:
+        log.logger.warning(
+            f"Workers still running after {timeout}s: {alive}; "
+            f"flushed {moved} in-flight item(s) to DLQ")
+    else:
+        log.logger.info(
+            f"Workers stopped cleanly"
+            + (f" (flushed {moved} leftover item(s) to DLQ)" if moved else ""))

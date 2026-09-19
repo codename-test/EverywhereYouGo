@@ -1,4 +1,4 @@
-# EverywhereYouGo (EGo) v1.2.4
+# EverywhereYouGo (EGo) v1.3.0
 
 [English](README.en.md) | 中文
 
@@ -51,9 +51,14 @@ EGO_AUTH_TOKEN=your-secret-token python3 main.py
 
 可选设置 `EGO_SECRET_KEY` 自定义 Flask session 密钥。
 
-## 配置文件
+## 配置存储
 
-配置持久化为 JSON 文件，位于 `config/` 目录：
+配置有两份，角色不同：
+
+| 存储 | 角色 |
+|------|------|
+| SQLite（`ego.db`） | **运行时真相源** —— 所有读写以库内数据为准 |
+| `config/*.json` | **导出 / 备份介质** —— 便于备份、版本管理与迁移 |
 
 | 文件 | 内容 |
 |------|------|
@@ -63,7 +68,17 @@ EGO_AUTH_TOKEN=your-secret-token python3 main.py
 | `config/templates.json` | 推送模板 |
 | `config/bindings.json` | 渠道绑定（含条件表达式） |
 
-可直接编辑 JSON 后重启生效，也可通过 WebUI 管理。系统设置（DND、日志级别等）和运行时数据（消息日志）存储在 SQLite（`ego.db`）中。
+**启动时的加载规则：**
+
+1. 数据库**已有**配置 → 以数据库为准，不读 JSON，并把当前配置**刷写**回 `config/*.json`
+2. 数据库**为空**且有 JSON → 从 JSON 导入（首次启动 / 迁移 / 恢复）
+3. 数据库为空且无 JSON → 导出初始配置到 JSON
+
+因此 **日常改配置请用 WebUI**（改完即时生效）。直接编辑 `config/*.json` 只在
+「数据库为空」的首次导入场景才会被读取，不是常规生效路径。
+
+系统设置（DND、日志级别等）、消息日志与队列同样存储在 SQLite。
+配置备份 / 恢复请用「系统设置 → 备份」，会打包 `config/*.json` + `parsers/*.py`。
 
 ## 解析器
 
@@ -101,7 +116,9 @@ def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
 设置免打扰时段后，消息进入队列等待，结束后自动刷新。紧急路由不受 DND 影响。
 
 ### 消息去重
-渠道绑定可配置 `dedup_key_expr` 和 `dedup_window`（默认 3600 秒）。同一去重键在窗口内不重复发送。
+去重粒度是 **消息 × 通道**：每个渠道绑定各自配置 `dedup_key_expr` 与 `dedup_window`
+（默认 3600 秒），互不影响。命中的渠道被跳过，其余渠道照常发送；
+只有**全部**渠道命中时，整条消息才标记为 `DISCARDED`。
 
 ### 并行推送
 多渠道匹配时线程池并行发送，总延迟取决于最慢的单个渠道。
@@ -111,11 +128,48 @@ def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
 
 ### 消息重发
 失败消息支持原始重发（使用已解析的 msg_json）或重新解析后重发。
+默认**只重发上次失败的渠道**，不会把已经成功的渠道重复推送一遍；
+需要整体重推时可用 `scope=all`。
 
 ### 导入导出
 - **备份**：下载 ZIP 包（`config/*.json` + `parsers/*.py`）
 - **恢复**：上传 ZIP 包，覆盖配置后自动生效
 - **JSON 导入**：支持 dry_run 预览、insert/overwrite 两种模式、依赖检查
+
+### 通道熔断
+第三方渠道持续故障时自动隔离，避免拖垮整条发送链路：
+
+- 滑动窗口（默认 60s）内失败率 > 50%，**或**连续失败 ≥ 5 次 → 熔断
+- 冷却时间指数退避 30 → 60 → 120 → … → 600 秒（封顶 10 分钟）
+- 冷却结束后进入半开探测，连续 3 次成功才恢复
+- **4xx 不计失败**（业务侧拒绝不等于服务故障），只对 5xx / 超时 / 连接类错误计数
+- 熔断期间消息**留在队列等待**：不消耗重试次数、不丢弃；状态持久化，重启后仍生效
+
+### 出站限流
+按通道独立限流（条/分钟），防止发送过快被对方封禁。重试解决不了 429——
+限流必须发生在发送**之前**。拿不到令牌的消息会排队等待，而不是被丢弃。
+
+### 韧性界面
+| 位置 | 能做什么 |
+|------|---------|
+| 通道列表 → **「韧性」列** | 查看限流徽章与熔断倒计时；熔断时可一键「手工恢复」 |
+| 通道编辑弹窗 | 设置该通道的出站限流（留空/0 = 不限流） |
+| 系统设置 → **韧性（通道熔断）** | 手工调整滑动窗口、连续失败阈值、冷却基数/上限、探测次数等参数 |
+
+参数取值优先级：`system_config`（设置页 / 直接改库） > 环境变量 > 内置默认，
+改完即时生效、无需重启。
+
+### 可观测性
+| 端点 | 说明 |
+|------|------|
+| `GET /api/metrics` | 队列深度、死信总数、各通道成功率、端到端延迟、熔断与限流状态；`?hours=N` 调整统计窗口（默认 24h） |
+| `GET /api/resilience` | 当前处于熔断 / 限流状态的通道 |
+| `GET /api/queue/stats` | 队列与死信计数 |
+| `GET /api/health` | 健康检查（SQLite / 磁盘 / 配置 / 队列） |
+
+### 优雅停机
+收到 `SIGTERM` 时先停止接收新消息，再等待在途任务完成（最长 30 秒），
+超时未完成的转入死信队列——容器重启不会丢消息。
 
 ## 国际化
 
@@ -146,6 +200,18 @@ def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
 | `LOG_LEVEL` | `INFO` | 日志等级 |
 | `EGO_AUTH_TOKEN` | *(空)* | 访问控制 Token |
 | `EGO_SECRET_KEY` | *(自动)* | Flask session 密钥 |
+| `EGO_INGRESS_WORKERS` | `8` | 每个端口数据源的入口工作线程数 |
+| `EGO_INGRESS_MAX_QUEUE` | `200` | 入口等待队列上限，超出返回 503（背压） |
+| `EGO_CLEANUP_INTERVAL` | `600` | 旧消息 / 去重键的清理间隔（秒） |
+| `EGO_BREAKER_WINDOW` | `60` | 熔断滑动窗口（秒） |
+| `EGO_BREAKER_MIN_SAMPLES` | `5` | 窗口内触发失败率判定的最少样本数 |
+| `EGO_BREAKER_FAILURE_RATIO` | `0.5` | 窗口失败率阈值（超过则熔断） |
+| `EGO_BREAKER_CONSECUTIVE` | `5` | 连续失败阈值（照顾低频通道） |
+| `EGO_BREAKER_OPEN_BASE` | `30` | 熔断冷却基数（秒），逐次翻倍 |
+| `EGO_BREAKER_OPEN_MAX` | `600` | 熔断冷却上限（秒） |
+| `EGO_BREAKER_HALF_OPEN_OK` | `3` | 恢复所需连续探测成功次数 |
+| `EGO_RATE_MAX_WAIT` | `1.0` | 限流取令牌的最长等待（秒），超时改为延迟重排 |
+| `EGO_RATE_MISS_TTL` | `30` | 未配置限流的通道，回查数据库的间隔（秒） |
 
 ## License
 

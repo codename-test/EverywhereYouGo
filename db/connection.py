@@ -31,5 +31,11 @@ def _conn():
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA busy_timeout=5000")
         conn.execute("PRAGMA journal_mode=WAL")
+        # WAL 下 synchronous=NORMAL 不再每次提交都 fsync（仅在 checkpoint 时同步），
+        # 大幅降低写入延迟；代价是掉电可能丢最后若干条事务（库本身仍一致）。
+        # 详见 doc/improvement.md v1.3.0「SQLite 调优 pragma」。
+        conn.execute("PRAGMA synchronous=NORMAL")
+        # 页缓存 64MB（负值 = KiB），减少重复读盘
+        conn.execute("PRAGMA cache_size=-64000")
         _local.conn = conn
     return conn

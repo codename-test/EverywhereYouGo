@@ -6,6 +6,9 @@ import db
 import renderer
 import i18n
 from flask import Blueprint, request, jsonify
+from api.validation import (
+    require_name, optional_str, optional_enum, TEMPLATE_ENGINES,
+)
 
 templates_bp = Blueprint("templates", __name__)
 
@@ -17,18 +20,30 @@ def api_templates():
 
 @templates_bp.route("/api/templates", methods=["POST"])
 def api_create_template():
-    data = request.json
+    data = request.json or {}
     tid = db.create_template(
-        data["name"], data.get("engine", "jinja2"),
-        data.get("title_tpl", ""), data.get("content_tpl", ""))
+        require_name(data),
+        optional_enum(data, "engine", TEMPLATE_ENGINES, default="jinja2"),
+        optional_str(data, "title_tpl", max_len=10000, default="") or "",
+        optional_str(data, "content_tpl", max_len=50000, default="") or "",
+    )
     return jsonify({"id": tid})
 
 
 @templates_bp.route("/api/templates/<int:tid>", methods=["PUT"])
 def api_update_template(tid):
-    data = request.json
-    db.update_template(tid, **{k: v for k, v in data.items()
-                             if k in ("name", "engine", "title_tpl", "content_tpl")})
+    data = request.json or {}
+    patch = {}
+    if "name" in data:
+        patch["name"] = require_name(data)
+    if "engine" in data:
+        patch["engine"] = optional_enum(data, "engine", TEMPLATE_ENGINES, default="jinja2")
+    if "title_tpl" in data:
+        patch["title_tpl"] = optional_str(data, "title_tpl", max_len=10000, default="") or ""
+    if "content_tpl" in data:
+        patch["content_tpl"] = optional_str(data, "content_tpl", max_len=50000, default="") or ""
+    if patch:
+        db.update_template(tid, **patch)
     return jsonify({"status": "ok"})
 
 

@@ -5,7 +5,7 @@ EGo 构建脚本 — 打包 Docker 镜像。
 用法:
   python3 build.py                  # 构建镜像
   python3 build.py --push           # 构建并推送
-  python3 build.py --tag v1.2.4     # 指定版本标签
+  python3 build.py --tag v1.3.0     # 指定版本标签
 """
 
 import os
@@ -13,7 +13,7 @@ import sys
 import subprocess
 import argparse
 
-VERSION = "1.2.4"
+VERSION = "1.3.0"
 IMAGE_NAME = "codenametest/everywhereyougo"
 DOCKERFILE = "Dockerfile"
 

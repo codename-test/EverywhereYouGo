@@ -62,6 +62,7 @@
                     <th>{{ _("ch.col_name") }}</th>
                     <th>{{ _("ch.col_type") }}</th>
                     <th>{{ _("ch.col_status") }}</th>
+                    <th>{{ _("ch.col_resilience") }}</th>
                     <th>{{ _("ch.col_actions") }}</th>
                 </tr>
             </thead>
@@ -79,6 +80,7 @@
                             <span class="badge bg-secondary">{{ _("common.disabled") }}</span>
                         {% endif %}
                     </td>
+                    <td id="res-cell-{{ ch.id }}"><span class="text-muted">—</span></td>
                     <td>
                         <button class="btn btn-icon btn-outline-primary btn-sm" onclick="testChannel({{ ch.id }})" title="{{ _("common.test") }}"><i class="bi bi-send"></i></button>
                         <button class="btn btn-icon btn-outline-primary btn-sm" onclick="openEditChannel({{ ch.id }})" title="{{ _("common.edit") }}"><i class="bi bi-pencil"></i></button>
@@ -175,6 +177,12 @@
                         <label class="form-label">{{ _("ch.config_label") }}</label>
                         <div id="dynamicFieldsContainer"></div>
                         <div id="noFieldsHint" class="form-text text-muted" style="display:none">{{ _("ch.no_config_needed") }}</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">{{ _("ch.rate_limit_label") }}</label>
+                        <input type="number" class="form-control" id="editChannelRateLimit"
+                               min="0" step="1" placeholder="0">
+                        <div class="form-text">{{ _("ch.rate_limit_help") }}</div>
                     </div>
                     <div class="mb-3 form-check">
                         <input type="checkbox" class="form-check-input" id="editChannelEnabled" checked>
@@ -457,6 +465,7 @@ function resetChannelModal() {
     document.getElementById('editChannelName').value = '';
     document.getElementById('editChannelPlugin').value = '';
     document.getElementById('editChannelEnabled').checked = true;
+    document.getElementById('editChannelRateLimit').value = '';
     document.getElementById('dynamicFieldsContainer').innerHTML = '';
     document.getElementById('noFieldsHint').style.display = 'none';
     populatePluginDropdown();
@@ -470,6 +479,8 @@ function openEditChannel(id) {
     document.getElementById('editChannelId').value = ch.id;
     document.getElementById('editChannelName').value = ch.name;
     document.getElementById('editChannelEnabled').checked = ch.enabled == 1;
+    var lim = getRateLimit(ch.id);
+    document.getElementById('editChannelRateLimit').value = lim > 0 ? lim : '';
 
     populatePluginDropdown();
     document.getElementById('editChannelPlugin').value = ch.type;
@@ -559,10 +570,18 @@ function saveChannel() {
     .then(function(result) {
         if (result.error) {
             showToast(t("ch.save_fail") + result.error, 'danger');
-        } else {
+            return;
+        }
+        // 通道保存成功后同步写入出站限流（新建时 id 由后端返回）
+        var cid = id || result.id;
+        return saveRateLimit(cid).then(function(rl) {
+            if (rl && rl.error) {
+                showToast(t("ch.save_fail") + rl.error, 'danger');
+                return;
+            }
             showToast(t("common.saved"));
             setTimeout(function() { location.reload(); }, 500);
-        }
+        });
     })
     .catch(function(err) { showToast(t("ch.save_fail") + err, 'danger'); });
 }
@@ -632,10 +651,78 @@ function escapeAttr(str) {
     return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
 }
 
+// ==================== 韧性（熔断 / 出站限流） ====================
+var resilienceData = {breaker: [], rate_limits: {}};
+
+function loadResilience() {
+    return fetch('/api/resilience')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            resilienceData = d || {breaker: [], rate_limits: {}};
+            renderResilience();
+        })
+        .catch(function() { /* 拿不到就保持空态，不影响通道页其它功能 */ });
+}
+
+function getRateLimit(id) {
+    var limits = resilienceData.rate_limits || {};
+    return limits[id] !== undefined ? limits[id] : (limits[String(id)] || 0);
+}
+
+function renderResilience() {
+    var openMap = {};
+    (resilienceData.breaker || []).forEach(function(b) { openMap[b.channel_id] = b; });
+
+    channelsData.forEach(function(ch) {
+        var cell = document.getElementById('res-cell-' + ch.id);
+        if (!cell) return;
+
+        var parts = [];
+        var b = openMap[ch.id];
+        if (b) {
+            var label = b.state === 'open' ? t("ch.breaker_open") : t("ch.breaker_probing");
+            if (b.state === 'open' && b.retry_in) label += ' ' + b.retry_in + 's';
+            parts.push('<span class="badge bg-danger me-1" title="' + t("ch.breaker_open_title") + '">'
+                       + '<i class="bi bi-exclamation-triangle"></i> ' + label + '</span>');
+            parts.push('<button class="btn btn-icon btn-outline-warning btn-sm me-1"'
+                       + ' onclick="resetBreaker(' + ch.id + ')" title="' + t("ch.breaker_reset") + '">'
+                       + '<i class="bi bi-arrow-counterclockwise"></i></button>');
+        }
+        var limit = getRateLimit(ch.id);
+        if (limit > 0) {
+            parts.push('<span class="badge bg-info" title="' + t("ch.rate_limit_badge_title") + '">'
+                       + '<i class="bi bi-speedometer"></i> ' + limit + t("ch.rate_limit_unit") + '</span>');
+        }
+        cell.innerHTML = parts.length ? parts.join('') : '<span class="text-muted">—</span>';
+    });
+}
+
+function resetBreaker(id) {
+    fetch('/api/resilience/breaker/' + id + '/reset', {method: 'POST'})
+        .then(function(r) { return r.json(); })
+        .then(function() {
+            showToast(t("ch.breaker_reset_done"));
+            loadResilience();
+        })
+        .catch(function(err) { showToast(t("ch.save_fail") + err, 'danger'); });
+}
+
+function saveRateLimit(id) {
+    var raw = document.getElementById('editChannelRateLimit').value;
+    var perMin = parseInt(raw || '0', 10);
+    if (isNaN(perMin) || perMin < 0) perMin = 0;
+    return fetch('/api/resilience/rate_limit/' + id, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({per_minute: perMin})
+    }).then(function(r) { return r.json(); });
+}
+
 // ==================== Init ====================
 document.addEventListener('DOMContentLoaded', function() {
     loadPlugins();
     resolveChannelTypes();
+    loadResilience();
     var col = document.getElementById('pluginsCollapse');
     if (col) {
         col.addEventListener('shown.bs.collapse', function() {

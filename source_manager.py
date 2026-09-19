@@ -66,41 +66,27 @@ def process_message(source_id, raw_body: bytes, headers: dict, query_params: dic
     # 1. 记录原始消息
     db.create_message_log(trace_id, source_id, src_name, raw_str, "RECEIVED")
 
-    # 2. 解析（parser_engine 监听 message.received）
+    # 2. 事件总线驱动全链路：解析 → 路由 → 入队
+    #    message.received → parser_engine → message.parsed → router_engine
+    #                     → message.routed  → sender_engine
+    #
+    #    ⚠️ 修复记录（2026-07-28）：原实现除事件链外，自己又重复 emit 了
+    #    message.parsed 与 message.routed，导致**同一条消息被投递 3 次**
+    #    （解析链内各发一次 + 这里再发两次）。该 bug 自 v1.1.0（commit 47ac7f9a）
+    #    起一直存在，回归测试见 tests/test_event_chain.py。
+    #    extra_fields（如 sub_path）改由 parser_engine 在路由之前合并。
     results = bus.emit(
         bus.message_received,
         trace_id=trace_id, source_id=source_id,
         raw_body=raw_body, headers=headers, query_params=query_params,
+        extra_fields=extra_fields,
     )
-    parse_ok, msg = _extract_result(results)
+    parse_ok, msg = _extract_result(results) or (False, None)
     if not parse_ok:
         return False, None
 
-    # 2.5 合并额外字段（如路径路由的 sub_path）
-    if extra_fields and isinstance(msg, dict):
-        msg.update(extra_fields)
-    if isinstance(msg, dict):
-        msg["_trace_id"] = trace_id
-
-    # 3. 路由（router_engine 监听 message.parsed）
-    results = bus.emit(
-        bus.message_parsed,
-        trace_id=trace_id, source_id=source_id, msg=msg,
-    )
-    route_result = _extract_result(results)
-    if route_result is None:
-        return True, msg
-
-    matched, msg = route_result
-
-    # 4. 发送（sender_engine 监听 message.routed）
-    results = bus.emit(
-        bus.message_routed,
-        trace_id=trace_id, source_id=source_id,
-        msg=msg, matched_channels=matched,
-    )
-    send_result = _extract_result(results)
-    return (send_result[0] if send_result else True), msg
+    # 3. 路由与入队已在事件链内完成，此处不再重复触发
+    return True, msg
 
 
 def _extract_result(results):
@@ -146,10 +132,34 @@ def flush_queue_for_source(source_id):
 
 # ── 重发 ──────────────────────────────────────
 
-def retry_message(msg_id, mode="original"):
+def _failed_channel_ids(rec):
+    """从 channel_results 取上次**失败**的 channel_id 集合。
+
+    返回 None 表示无法判定（旧记录没有 channel_id、或没有结果），
+    调用方应回退到"整条重发"的旧行为。
+    """
+    try:
+        results = json.loads(rec.get("channel_results") or "[]")
+    except Exception:
+        return None
+    if not results:
+        return None
+    ids, has_id = set(), False
+    for r in results:
+        if "channel_id" in r:
+            has_id = True
+            if not r.get("ok"):
+                ids.add(r["channel_id"])
+    return ids if has_id else None
+
+
+def retry_message(msg_id, mode="original", scope="failed"):
     """
     重发一条失败消息。
-    mode: "original" = 用存好的 msg_json 重发; "rerender" = 重新解析 raw_body。
+
+    mode:  "original" = 用存好的 msg_json 重发; "rerender" = 重新解析 raw_body
+    scope: "failed"（默认）= **只重发上次失败的渠道**，避免把已成功的渠道重复推送；
+           "all" = 重发全部匹配渠道（旧行为，用于确实想整体重推的场景）
     """
     rec = db.get_message_by_id(msg_id)
     if not rec:
@@ -191,6 +201,27 @@ def retry_message(msg_id, mode="original"):
     matched = router_engine.match_for_source(rec["source_id"], msg)
     if not matched:
         return False, "No matching channels"
+
+    # ── 渠道级重发：只挑上次失败的渠道 ──
+    if scope != "all":
+        failed_ids = _failed_channel_ids(rec)
+        if failed_ids is None:
+            log.logger.info(
+                f"[Retry #{msg_id}] channel_results 缺少 channel_id，回退为整条重发"
+            )
+        elif not failed_ids:
+            return False, "上次所有渠道均已成功，无需重发（如需整体重推请用 scope=all）"
+        else:
+            targets = [sc for sc in matched if sc["channel_id"] in failed_ids]
+            if not targets:
+                return False, ("上次失败的渠道已不在当前匹配规则中"
+                               "（绑定可能已改动），无法只重发失败渠道")
+            log.logger.info(
+                f"[Retry #{msg_id}] Channel-level retry: "
+                f"{[sc['channel_id'] for sc in targets]} of "
+                f"{[sc['channel_id'] for sc in matched]} matched"
+            )
+            matched = targets
 
     ok, _ = sender_engine.send_to_channels(rec["trace_id"], rec["source_id"], msg, matched)
     return ok, None

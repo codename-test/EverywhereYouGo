@@ -31,7 +31,7 @@ import version_checker  # 版本检查
 import worker           # 异步发送 worker
 from web_ui import run_web_ui, has_ssl, ssl_enabled_by_env, app as web_app
 
-VERSION = "1.2.4"
+VERSION = "1.3.0"
 AUTHOR = "codename-test"
 DESCRIPTION = "EverywhereYouGo (EGo) — 通用信息转发平台"
 
@@ -91,8 +91,9 @@ def init_ego():
     log.logger.info("Initializing database...")
     db.init_db()
 
-    # 1.1 挂载数据库日志处理器
-    log.setup_db_logging()
+    # 1.1 挂载数据库日志处理器（处理器由 db/ 提供，log 模块不反向依赖 db）
+    from db.log_handler import make_log_handler
+    log.setup_db_logging(make_log_handler())
 
     # 1.5 加载配置（JSON → SQLite）
     import config_manager
@@ -111,6 +112,11 @@ def init_ego():
     log.logger.info(f"Log level: {log_level}")
 
     # 3. 启动异步发送 worker（恢复崩溃遗留任务 + 开始消费队列）
+    #    先恢复熔断状态与限流配置，再放 worker 出笼
+    import circuit_breaker
+    import rate_limiter
+    circuit_breaker.get_breaker().load()
+    rate_limiter.get_limiter().load()
     worker.start_workers()
 
     # 4. 启动所有数据源监听
@@ -128,12 +134,16 @@ def init_ego():
     dnd_thread.start()
     log.logger.info("DND queue checker started.")
 
-    # 6. 启动消息清理线程（每 10 分钟清理一次旧消息）
+    # 6. 启动消息清理线程（间隔可配，默认 10 分钟）
+    cleanup_interval = int(os.getenv("EGO_CLEANUP_INTERVAL", "600"))
+
     def cleanup_loop():
         while True:
-            time.sleep(600)
+            time.sleep(cleanup_interval)
             try:
                 db.cleanup_old_messages()
+                # 顺带清理过老的去重键（窗口远小于保留期）
+                db.dedup_purge()
             except Exception as e:
                 log.logger.error(f"Cleanup error: {e}")
 
@@ -163,6 +173,25 @@ def init_ego():
     return mgr
 
 
+def shutdown(mgr):
+    """优雅停机：**先停接收**（不再进新消息），**再停 worker**（等在途完成）。
+
+    顺序很重要：先停 worker 的话，接收端还会继续塞新消息进来，
+    这些消息会卡在队列里没人处理。
+
+    提到模块级是为了可测试——tests/test_p2_hardening.py 会断言调用顺序。
+    """
+    log.logger.info("Shutting down...")
+    try:
+        mgr.stop_all()            # 1) 停接收
+    except Exception as e:
+        log.logger.error(f"stop_all failed: {e}")
+    try:
+        worker.stop_workers()     # 2) 停 worker：等在途完成，超时刷死信
+    except Exception as e:
+        log.logger.error(f"stop_workers failed: {e}")
+
+
 def main():
     """启动入口：Flask 开发服务器。"""
     print(WELCOME)
@@ -185,9 +214,7 @@ def main():
 
     # 信号处理
     def signal_handler(sig, frame):
-        log.logger.info("Shutting down...")
-        worker.stop_workers()
-        mgr.stop_all()
+        shutdown(mgr)
         sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
@@ -196,9 +223,7 @@ def main():
     try:
         run_web_ui(web_port, ssl_port)
     except KeyboardInterrupt:
-        log.logger.info("Shutting down...")
-        worker.stop_workers()
-        mgr.stop_all()
+        shutdown(mgr)
 
 
 if __name__ == "__main__":

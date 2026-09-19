@@ -89,6 +89,31 @@ def init_db():
             value TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS channel_breaker (
+            channel_id   INTEGER PRIMARY KEY,
+            state        TEXT    NOT NULL DEFAULT 'closed',
+            opened_at    REAL    DEFAULT 0,
+            open_count   INTEGER DEFAULT 0,
+            half_open_ok INTEGER DEFAULT 0,
+            updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS channel_rate_limit (
+            channel_id INTEGER PRIMARY KEY,
+            per_minute INTEGER NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS dedup_keys (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel_id INTEGER NOT NULL,
+            dedup_key  TEXT    NOT NULL,
+            sent_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_dedup_lookup
+            ON dedup_keys(channel_id, dedup_key, sent_at);
+
         CREATE TABLE IF NOT EXISTS logs (
             id        INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -176,6 +201,12 @@ def init_db():
         pass
     try:
         conn.execute("ALTER TABLE source_channels ADD COLUMN urgent INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    # message_queue: 延迟重排计数（熔断/限流期间放回队列，不消耗重试次数）
+    try:
+        conn.execute("ALTER TABLE message_queue ADD COLUMN defer_count INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
 
