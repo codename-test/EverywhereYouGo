@@ -128,7 +128,7 @@ class TestRestore:
         self._patch_dirs(monkeypatch)
         zip_buf = _make_zip({
             "config/channels.json": b"[]",
-            "parsers/myparser.py": b"# parser\n",
+            "parsers/myparser.py": b"def parse(b, h, q):\n    return {'v': 'ok'}\n",
         })
         resp = self.client.post(
             "/api/restore",
@@ -139,6 +139,44 @@ class TestRestore:
         assert os.path.isfile(os.path.join(self.config_dir, "channels.json"))
         assert os.path.isfile(os.path.join(self.parsers_dir, "myparser.py"))
 
+
+    def test_atomic_restore_rollback_on_fail(self, monkeypatch):
+        """#9: 校验失败 → 原文件不动、无半成功（无新文件写入）。"""
+        self._patch_dirs(monkeypatch)
+        NL = chr(10)
+        valid = "def parse(b, h, q):" + NL + "    return {'v': 'OLD'}" + NL
+        with open(os.path.join(self.parsers_dir, "my.py"), "w", encoding="utf-8") as f:
+            f.write(valid)
+        bad = "def parse(b, h, q):" + NL + "    return {  # unclosed"
+        zip_buf = _make_zip({"parsers/bad.py": bad.encode("utf-8")})
+        resp = self.client.post(
+            "/api/restore", data={"file": (zip_buf, "b.zip")},
+            content_type="multipart/form-data"
+        )
+        data = resp.get_json()
+        assert data["ok"] is False, data
+        assert "恢复校验失败" in data["error"], data
+        assert os.path.isfile(os.path.join(self.parsers_dir, "my.py"))
+        with open(os.path.join(self.parsers_dir, "my.py"), encoding="utf-8") as f:
+            assert f.read() == valid, "原文件被破坏"
+        assert not os.path.isfile(os.path.join(self.parsers_dir, "bad.py"))
+
+    def test_atomic_restore_rollback_config_fail(self, monkeypatch):
+        """#9: 配置 JSON 解析失败 → 所有文件都不写。"""
+        self._patch_dirs(monkeypatch)
+        ok_src = "def parse(b, h, q):" + chr(10) + "    return {'v': 'x'}" + chr(10)
+        zip_buf = _make_zip({
+            "config/channels.json": b"[{bad json",
+            "parsers/ok.py": ok_src.encode("utf-8"),
+        })
+        resp = self.client.post(
+            "/api/restore", data={"file": (zip_buf, "b.zip")},
+            content_type="multipart/form-data"
+        )
+        data = resp.get_json()
+        assert data["ok"] is False, data
+        assert not os.path.isfile(os.path.join(self.config_dir, "channels.json"))
+        assert not os.path.isfile(os.path.join(self.parsers_dir, "ok.py"))
 class TestRestoreReload:
     """v1.3.1 改进清单 #1：Restore 后应重载插件代码，刷新运行中缓存。"""
 
@@ -295,3 +333,4 @@ class TestExportMasking:
         assert cfg["password"] == "secret123", "backup 应保留完整密码（不脱敏）"
         assert cfg["token"] == "tok"
         assert cfg["username"] == "a@b"
+

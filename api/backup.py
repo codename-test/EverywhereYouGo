@@ -5,6 +5,8 @@
 import os
 import io
 import json
+import shutil
+import tempfile
 import zipfile
 import datetime as _dt
 
@@ -197,38 +199,85 @@ def api_restore():
             zf.close()
             return jsonify({"ok": False, "error": i18n._("err.restore_too_large")})
 
-    for name in config_files:
-        if name.endswith(".json"):
+    # ── 原子恢复（#9）：全量落临时目录 + 校验，全通过才统一替换；
+    # 任一失败 → 原文件不动，无半成功 ──
+    tmp_root = tempfile.mkdtemp(prefix="ego_restore_")
+    for d in ("config", "parsers", "channels"):
+        os.makedirs(os.path.join(tmp_root, d), exist_ok=True)
+    try:
+        errors = []
+        staged = []
+        skipped_builtin = []
+        restored = {"parser": [], "channel": []}
+
+        # 配置 JSON：写临时 + 校验可解析
+        for name in config_files:
+            if not name.endswith(".json"):
+                continue
             fname = os.path.basename(name[len("config/"):])
             if not _safe_filename(fname):
+                errors.append(f"config/{fname}: 非法文件名")
                 continue
-            with open(os.path.join(CONFIG_DIR, fname), "wb") as f:
+            tpath = os.path.join(tmp_root, "config", fname)
+            with open(tpath, "wb") as f:
                 f.write(zf.read(name))
+            try:
+                with open(tpath, "r", encoding="utf-8") as f:
+                    json.loads(f.read())
+            except Exception as e:
+                errors.append(f"config/{fname}: JSON 解析失败 {str(e)[:100]}")
+                continue
+            staged.append((tpath, os.path.join(CONFIG_DIR, fname), fname, "config"))
 
-    # 恢复进**用户目录**；与内置同名的条目跳过
-    # （内置随镜像更新，恢复旧副本会遮蔽新版内置插件）
-    plugin_paths.ensure_user_dirs()
-    skipped_builtin = []
-    restored = {"parser": [], "channel": []}
-    for names, kind, prefix in ((parser_files, "parser", "parsers/"),
-                                (channel_files, "channel", "channels/")):
-        for name in names:
-            if not name.endswith(".py"):
-                continue
-            fname = os.path.basename(name[len(prefix):])
-            if not _safe_filename(fname):
-                continue
-            if plugin_paths.is_builtin(kind, fname):
-                skipped_builtin.append(fname)
-                continue
-            with open(os.path.join(plugin_paths.user_dir(kind), fname), "wb") as f:
-                f.write(zf.read(name))
-            restored[kind].append(fname)
-    if skipped_builtin:
-        result["skipped_builtin"] = skipped_builtin
-        log.logger.info(f"Restore: skipped built-in plugin(s): {skipped_builtin}")
+        # 插件：写临时 + 校验可加载；与内置同名条目跳过（内置随镜像更新）
+        plugin_paths.ensure_user_dirs()
+        for names, kind, prefix in ((parser_files, "parser", "parsers/"),
+                                    (channel_files, "channel", "channels/")):
+            kind_dir = kind + "s"
+            udir = plugin_paths.user_dir(kind)
+            for name in names:
+                if not name.endswith(".py"):
+                    continue
+                fname = os.path.basename(name[len(prefix):])
+                if not _safe_filename(fname):
+                    errors.append(f"{kind}/{fname}: 非法文件名")
+                    continue
+                if plugin_paths.is_builtin(kind, fname):
+                    skipped_builtin.append(fname)
+                    continue
+                tpath = os.path.join(tmp_root, kind_dir, fname)
+                with open(tpath, "wb") as f:
+                    f.write(zf.read(name))
+                if kind == "parser":
+                    err = parser_loader.validate_parser(tpath)
+                else:
+                    err = channel_loader.validate_channel(tpath)
+                if err:
+                    errors.append(f"{kind}/{fname}: {err[:120]}")
+                    continue
+                staged.append((tpath, os.path.join(udir, fname), fname, kind))
+                restored[kind].append(fname)
 
-    zf.close()
+        if errors:
+            zf.close()
+            return jsonify({"ok": False,
+                            "error": "恢复校验失败，未修改任何文件: " + "; ".join(errors[:3])})
+
+        # 全通过 → 统一原子替换到最终位置
+        for tpath, final, fname, kind in staged:
+            tmpfinal = final + ".restore.tmp"
+            shutil.copyfile(tpath, tmpfinal)
+            os.replace(tmpfinal, final)
+            log.logger.info(f"Restore: placed {kind}/{fname}")
+
+        if skipped_builtin:
+            result["skipped_builtin"] = skipped_builtin
+            log.logger.info(f"Restore: skipped built-in plugin(s): {skipped_builtin}")
+
+        zf.close()
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+
 
     try:
         import config_manager
