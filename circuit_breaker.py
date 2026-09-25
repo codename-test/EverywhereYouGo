@@ -113,6 +113,15 @@ _FAILURE_HINTS = (
     "unreachable", "reset by peer", "eof occurred",
 )
 
+# 可恢复限流（HTTP 429/408）—— 应走 defer 退避，不计入熔断失败
+_THROTTLE_HINTS = ("429", "408", "too many requests", "rate limit", "throttl", "retry after")
+
+
+def is_throttle(error):
+    """是否 HTTP 429/408 类可恢复限流。"""
+    e = (error or "").lower()
+    return any(t in e for t in _THROTTLE_HINTS)
+
 
 def classify(error):
     """判断一次失败是否计入熔断。
@@ -121,6 +130,8 @@ def classify(error):
     未知错误保守计入失败——「发送没成功」比「漏计故障」代价更小。
     """
     e = (error or "").lower()
+    if is_throttle(error):
+        return False  # 限流：不计熔断失败（sender 另行 defer 退避）
     if _HTTP_5XX.search(e) or any(h in e for h in _FAILURE_HINTS):
         return True
     if _HTTP_4XX.search(e):

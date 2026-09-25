@@ -24,6 +24,8 @@ from queue_backend import get_backend
 # 熔断/限流命中时的延迟重排间隔（秒）——不消耗重试次数，见 queue_backend.defer()
 CIRCUIT_DEFER_SECONDS = 10
 RATE_DEFER_SECONDS = 5
+# HTTP 429/408 可恢复限流退避间隔（秒）——不消耗重试次数
+THROTTLE_DEFER_SECONDS = 30
 
 
 def _binding_dedup_key(sc, msg):
@@ -176,6 +178,12 @@ def _send_via_channel(ch, tmpl, msg, trace_id, channel_id, dedup_key=""):
             _record_dedup(channel_id, dedup_key)
             log.logger.info(f"[{trace_id}] Sent via {ch_name}")
         else:
+            if circuit_breaker.is_throttle(err):
+                # HTTP 429/408 可恢复限流 → 标记为应 defer（不消耗重试）
+                result.update(blocked=True, reason="throttle",
+                              error=f"Throttled: {err[:200]}")
+                log.logger.warning(f"[{trace_id}] Channel {ch_name} throttled ({err}), deferring")
+                return None, result
             result["error"] = err or "Send returned False"
             log.logger.error(f"[{trace_id}] Failed: {ch_name} — {err}")
         return bool(ok), result
@@ -215,12 +223,16 @@ def process_queue_item(item):
     ok, result = _send_via_channel(ch, tmpl, msg, trace_id, channel_id,
                                    dedup_key=item.get("dedup_key") or "")
 
-    # 被熔断 / 限流拦下 → 延迟重排（不消耗重试次数，也不计入通道结果）
+    # 被熔断 / 限流 / 429-408 拦下 → 延迟重排（不消耗重试次数，也不计入通道结果）
     if ok is None:
+        reason = result.get("reason")
         result["deferred"] = True
-        result["defer_seconds"] = (CIRCUIT_DEFER_SECONDS
-                                   if result.get("reason") == "circuit"
-                                   else RATE_DEFER_SECONDS)
+        if reason == "throttle":
+            result["defer_seconds"] = THROTTLE_DEFER_SECONDS
+        else:
+            result["defer_seconds"] = (CIRCUIT_DEFER_SECONDS
+                                       if reason == "circuit"
+                                       else RATE_DEFER_SECONDS)
         log.logger.info(f"[{trace_id}] {result['error']} on {result['ch_name']}, deferring")
 
     return (ok is True), result

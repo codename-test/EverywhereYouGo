@@ -47,6 +47,8 @@ class Channel(BaseChannel):
                 json={"title": title, "body": content, "group": "EverywhereYouGo"},
                 timeout=15
             )
+            if resp.status_code in (429, 408):
+                return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
             body = resp.json()
             if body.get("code") == 200:
                 return True, ""

@@ -121,6 +121,8 @@ class Channel(BaseChannel):
                 f"https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token={token}",
                 json=payload, timeout=15
             )
+            if resp.status_code in (429, 408):
+                return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
             data = resp.json()
             errcode = data.get("errcode")
             if errcode == 0:

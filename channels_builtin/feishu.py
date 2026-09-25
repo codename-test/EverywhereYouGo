@@ -43,6 +43,8 @@ class Channel(BaseChannel):
                     }],
                 }
             }, timeout=15)
+            if resp.status_code in (429, 408):
+                return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
             data = resp.json()
             code = data.get("code", -1)
             status = data.get("StatusCode", -1)

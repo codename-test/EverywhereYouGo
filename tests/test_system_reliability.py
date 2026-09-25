@@ -483,3 +483,41 @@ class TestConcurrentConsumption(_Base):
     @classmethod
     def teardown_class(cls):
         shutil.rmtree(_test_db_dir, ignore_errors=True)
+
+
+class TestThrottleDefer(_Base):
+    """HTTP 429/408 可恢复限流：走 defer 退避，不计熔断失败、不消耗重试。"""
+
+    def test_429_defers_without_failure_or_retry(self, monkeypatch):
+        ch = ScriptedChannel([(False, "HTTP 429: too many requests")])
+        self._mkmsg("t429")
+        _enqueue("t429")
+        state, result = _run_one(ch)
+        assert state == "deferred", state
+        assert result["deferred"] is True
+        assert result.get("reason") == "throttle"
+        assert result["defer_seconds"] == 30, "应使用 THROTTLE_DEFER_SECONDS"
+        row = db._conn().execute(
+            "SELECT retry_count, defer_count, status FROM message_queue WHERE trace_id=?",
+            ("t429",)).fetchone()
+        assert row is not None
+        assert row["retry_count"] == 0, "限流不应消耗重试次数"
+        assert row["defer_count"] == 1
+        allow, _ = self.breaker.should_allow(1)
+        assert allow is True, "429 不应触发熔断"
+
+    def test_408_defers(self, monkeypatch):
+        ch = ScriptedChannel([(False, "HTTP 408: Request Timeout")])
+        self._mkmsg("t408")
+        _enqueue("t408")
+        state, result = _run_one(ch)
+        assert state == "deferred", state
+        assert result.get("reason") == "throttle"
+        row = db._conn().execute(
+            "SELECT retry_count, defer_count FROM message_queue WHERE trace_id=?",
+            ("t408",)).fetchone()
+        assert row is not None
+        assert row["retry_count"] == 0
+        assert row["defer_count"] == 1
+        allow, _ = self.breaker.should_allow(1)
+        assert allow is True, "408 不应触发熔断"
