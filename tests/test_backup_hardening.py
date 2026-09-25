@@ -137,3 +137,100 @@ class TestRestore:
         assert resp.status_code == 200
         assert os.path.isfile(os.path.join(self.config_dir, "channels.json"))
         assert os.path.isfile(os.path.join(self.parsers_dir, "myparser.py"))
+
+class TestRestoreReload:
+    """v1.3.1 改进清单 #1：Restore 后应重载插件代码，刷新运行中缓存。"""
+
+    def setup_method(self):
+        self.tmp = tempfile.mkdtemp()
+        self.config_dir = os.path.join(self.tmp, "config")
+        self.parsers_dir = os.path.join(self.tmp, "parsers")
+        self.channels_dir = os.path.join(self.tmp, "channels")
+        os.makedirs(self.config_dir)
+        os.makedirs(self.parsers_dir)
+        os.makedirs(self.channels_dir)
+        self.app = create_app(source_mgr=None)
+        self.app.config["TESTING"] = True
+        self.client = self.app.test_client()
+
+    def teardown_method(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _patch_dirs(self, monkeypatch):
+        import api.backup as bk
+        import config_manager
+        import plugin_paths
+        monkeypatch.setattr(plugin_paths, "PARSERS_USER", self.parsers_dir)
+        monkeypatch.setattr(plugin_paths, "CHANNELS_USER", self.channels_dir)
+        monkeypatch.setattr(bk, "PARSERS_DIR", self.parsers_dir)
+        monkeypatch.setattr(config_manager, "CONFIG_DIR", self.config_dir)
+
+    def _make_zip(self, entries):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            for name, data in entries.items():
+                if isinstance(data, str):
+                    data = data.encode("utf-8")
+                zf.writestr(name, data)
+        buf.seek(0)
+        return buf
+
+    def _restore(self, monkeypatch, entries):
+        self._patch_dirs(monkeypatch)
+        buf = self._make_zip(entries)
+        resp = self.client.post(
+            "/api/restore", data={"file": (buf, "b.zip")},
+            content_type="multipart/form-data")
+        assert resp.status_code == 200, resp.get_data()
+        return resp.get_json()
+
+    def _parser_code(self, tag):
+        return f"def parse(b, h, q):\n    return {{'v': '{tag}'}}\n"
+
+    def test_restore_reload_parser(self, monkeypatch):
+        """恢复新版解析器后，run_parser 应读到新版而非运行中旧缓存。"""
+        import parser_loader
+        import db
+
+        self._patch_dirs(monkeypatch)
+        db.create_parser("my", "my.py", "")
+        with open(os.path.join(self.parsers_dir, "my.py"), "w", encoding="utf-8") as f:
+            f.write(self._parser_code("OLD"))
+        parser_loader.load_parser("my.py")
+
+        before = parser_loader.run_parser("my.py", b"", {}, {})
+        assert before["v"] == "OLD", "运行中缓存应先读旧版"
+
+        data = self._restore(monkeypatch, {"parsers/my.py": self._parser_code("NEW")})
+        assert data["ok"] is True
+
+        after = parser_loader.run_parser("my.py", b"", {}, {})
+        assert after["v"] == "NEW", "restore 后缓存未刷新"
+
+    def test_restore_reload_channel(self, monkeypatch):
+        """恢复新版通道插件后，create_channel 应实例化新版。"""
+        import channel_loader
+        import db
+
+        self._patch_dirs(monkeypatch)
+        ch_src_old = (
+            "from channel_base import BaseChannel\n"
+            "class Channel(BaseChannel):\n"
+            "    CHANNEL_TYPE = 'mytest_channel'\n"
+            "    CHANNEL_NAME = 'MyTest'\n"
+            "    def send(self, title, content):\n"
+            "        return (True, 'OLD')\n"
+            "    def test(self):\n"
+            "        return True\n"
+        )
+        with open(os.path.join(self.channels_dir, "mytest_channel.py"), "w", encoding="utf-8") as f:
+            f.write(ch_src_old)
+        channel_loader.load_plugin("mytest_channel.py")
+        assert channel_loader.load_plugin("mytest_channel.py").Channel("x").send("t", "c") == (True, "OLD")
+
+        ch_src_new = ch_src_old.replace("'OLD'", "'NEW'")
+        self._restore(monkeypatch, {"channels/mytest_channel.py": ch_src_new})
+
+        ch = channel_loader.load_plugin("mytest_channel.py").Channel("x")
+        assert ch.send("t", "c") == (True, "NEW"), "restore 后通道缓存未刷新"
+

@@ -10,6 +10,7 @@ import datetime as _dt
 
 import db
 import parser_loader
+import channel_loader
 import i18n
 import log
 import plugin_paths
@@ -179,6 +180,7 @@ def api_restore():
     # （内置随镜像更新，恢复旧副本会遮蔽新版内置插件）
     plugin_paths.ensure_user_dirs()
     skipped_builtin = []
+    restored = {"parser": [], "channel": []}
     for names, kind, prefix in ((parser_files, "parser", "parsers/"),
                                 (channel_files, "channel", "channels/")):
         for name in names:
@@ -192,6 +194,7 @@ def api_restore():
                 continue
             with open(os.path.join(plugin_paths.user_dir(kind), fname), "wb") as f:
                 f.write(zf.read(name))
+            restored[kind].append(fname)
     if skipped_builtin:
         result["skipped_builtin"] = skipped_builtin
         log.logger.info(f"Restore: skipped built-in plugin(s): {skipped_builtin}")
@@ -203,6 +206,26 @@ def api_restore():
         config_manager.load_all()
     except Exception as e:
         result["load_error"] = str(e)
+
+    # 重载恢复的插件代码，刷新运行中缓存 —— 避免"文件已恢复但运行中
+    # _parser_cache / _channel_cache 仍是旧版"（v1.3.1 改进清单 #1）
+    reload_errors = []
+    for fname in restored["parser"]:
+        try:
+            parser_loader.reload_parser(fname)
+            log.logger.info(f"Restore: reloaded parser {fname}")
+        except Exception as e:
+            reload_errors.append(f"parser {fname}: {str(e)[:200]}")
+            log.logger.warning(f"[Restore] reload parser {fname} failed: {e}")
+    for fname in restored["channel"]:
+        try:
+            channel_loader.reload_plugin(fname)
+            log.logger.info(f"Restore: reloaded channel {fname}")
+        except Exception as e:
+            reload_errors.append(f"channel {fname}: {str(e)[:200]}")
+            log.logger.warning(f"[Restore] reload channel {fname} failed: {e}")
+    if reload_errors:
+        result["reload_errors"] = reload_errors
 
     result["ok"] = True
     return jsonify(result)

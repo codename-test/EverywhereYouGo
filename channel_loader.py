@@ -12,6 +12,7 @@ import os
 import sys
 import traceback
 import threading
+import types
 import log
 import plugin_paths
 from channel_base import BaseChannel
@@ -52,13 +53,19 @@ def load_plugin(filename: str):
             f"Channel plugin not found: {filename} "
             f"(the plugin file may have been deleted; re-upload it or pick another type)")
 
+    # 显式读源 + compile + exec，规避 importlib FileLoader 的 (size, mtime) 缓存
+    with open(filepath, "r", encoding="utf-8") as f:
+        source = f.read()
+    code = compile(source, filepath, "exec")
+
     mod_name = _module_name(filename)
-    spec = importlib.util.spec_from_file_location(mod_name, filepath)
-    mod = importlib.util.module_from_spec(spec)
+    mod = types.ModuleType(mod_name, f"<channel {filename}>")
+    mod.__file__ = filepath
+    mod.__spec__ = None
     # Inject BaseChannel so plugins can use it without relative imports
     mod.BaseChannel = BaseChannel
     sys.modules[mod_name] = mod
-    spec.loader.exec_module(mod)
+    exec(code, mod.__dict__)
 
     if not hasattr(mod, "Channel"):
         raise AttributeError(f"Channel plugin {filename} must define a Channel class")

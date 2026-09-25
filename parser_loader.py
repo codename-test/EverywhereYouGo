@@ -12,6 +12,7 @@ import os
 import sys
 import traceback
 import threading
+import types
 import log
 import plugin_paths
 
@@ -40,7 +41,9 @@ _parser_cache_lock = threading.Lock()
 
 def load_parser(filename: str):
     """
-    加载 parsers/{filename}，返回 module 对象。
+    加载解析器模块，返回 module 对象。
+    每次从磁盘**显式读取源码并重新执行**，在线编辑 / restore 后立即生效；
+    不依赖文件 (size, mtime) 缓存（规避同长度秒内重写时 FileLoader 复用旧源码）。
     缓存：同名文件只加载一次，调用 reload_parser 显式重载。
     """
     with _parser_cache_lock:
@@ -53,11 +56,17 @@ def load_parser(filename: str):
             f"Parser not found: {filename} "
             f"(the parser file may have been deleted; re-upload it or pick another)")
 
+    # 显式读源 + compile + exec，规避 importlib FileLoader 的 (size, mtime) 缓存
+    with open(filepath, "r", encoding="utf-8") as f:
+        source = f.read()
+    code = compile(source, filepath, "exec")
+
     mod_name = _module_name(filename)
-    spec = importlib.util.spec_from_file_location(mod_name, filepath)
-    mod = importlib.util.module_from_spec(spec)
+    mod = types.ModuleType(mod_name, f"<parser {filename}>")
+    mod.__file__ = filepath
+    mod.__spec__ = None
     sys.modules[mod_name] = mod
-    spec.loader.exec_module(mod)
+    exec(code, mod.__dict__)
 
     if not hasattr(mod, "parse"):
         raise AttributeError(f"Parser {filename} must define a parse() function")
