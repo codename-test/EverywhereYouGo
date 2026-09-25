@@ -215,6 +215,12 @@ Per-channel rate limit (messages per minute) to avoid getting blocked by the rem
 Retries cannot fix a 429 — limiting has to happen **before** sending. A message that
 cannot get a token waits in the queue instead of being dropped.
 
+**Token bucket**: each channel has an independent token bucket whose capacity (burst)
+equals the configured per-minute quota; it refills at `quota ÷ 60` tokens per second.
+Sending one message takes 1 token; when the bucket is empty the message is queued —
+not dropped — until a token is available (up to `EGO_RATE_MAX_WAIT` seconds, after which
+it is deferred instead).
+
 ### Resilience UI
 | Where | What you can do |
 |-------|-----------------|
