@@ -25,6 +25,8 @@ def api_channels():
         # 通道实例引用的插件可能已被删除 → 前端要能一眼看出它发不出去
         fn = plugin_paths.channel_filename(c.get("type", ""))
         c["plugin_missing"] = plugin_paths.resolve("channel", fn) is None
+        # 同名用户副本遮蔽了内置插件 → 前端提示"正在用自定义版替代官方版"
+        c["plugin_shadowed"] = bool(fn and plugin_paths.shadows_builtin("channel", fn))
     return jsonify(chans)
 
 

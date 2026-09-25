@@ -109,11 +109,32 @@ Rules:
 > With one shared directory there is no way out: you either lose user files, or the built-ins
 > can never be upgraded.
 
-**Upgrading from an older version**: older releases wrote user uploads straight into the
-built-in directory, which had no persistence — recreating the container lost them.
-Take a backup first (**Settings → Backup**), then upgrade and restore. Restore writes into the
-new user directories and automatically skips entries that collide with built-ins
-(so a stale copy cannot shadow the upgraded built-in).
+**Upgrading from v1.3.0 to v1.3.1+**
+Older versions wrote user-uploaded plugins directly into the **built-in** directory,
+which is **not persisted** — recreating the container would lose them. Before
+upgrading to v1.3.1+, **back up your user plugins first**:
+
+1. **Export** (pick one):
+   - Export a ZIP via the old container's *Settings → Backup* (if the old version supports it);
+   - Or `docker cp` the plugin directory from the old container (in the old version,
+     user plugins share one unvolume-mounted directory with the built-ins — the exact
+     path depends on your old deployment):
+     ```bash
+     docker cp <ego-container>:/app/parsers_builtin  /tmp/old-parsers
+     docker cp <ego-container>:/app/channels_builtin /tmp/old-channels
+     ```
+2. **Upgrade the image**: from v1.3.1+ onward, user plugins live in the **user**
+   directory backed by named volumes (`ego_parsers`/`ego_channels`). A regular image
+   upgrade (pull the new image, recreate the container) **does not require re-uploading
+   plugins** — they survive via the volumes.
+3. **Restore** (only when migrating from the old version): restore writes into the
+   new user directory and automatically skips entries that collide with built-ins
+   (to prevent stale copies from shadowing the new built-in plugins).
+
+> **Volume operation semantics** (`ego_parsers` / `ego_channels`):
+> - `docker compose up` (or recreating the container) → volume is kept, plugins survive
+> - `docker compose down` → named volumes are kept by default, plugins survive
+> - `docker compose down -v` → **volumes are deleted, all user plugins are lost** — confirm first
 
 ## Parsers
 

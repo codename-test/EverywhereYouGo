@@ -74,6 +74,9 @@
                     <td>{{ ch.name }}</td>
                     <td>
                         <span class="badge bg-secondary" id="ch-type-{{ ch.id }}">{{ ch.type }}</span>
+                        {% if ch.plugin_shadowed %}
+                        <span class="badge bg-warning text-dark" title="用户版同名插件遮蔽了内置插件">{{ _("ch.shadow_builtin") }}</span>
+                        {% endif %}
                     </td>
                     <td>
                         {% if ch.enabled %}

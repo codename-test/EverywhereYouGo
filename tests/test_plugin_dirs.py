@@ -501,3 +501,43 @@ class TestUpgradeCompatibility:
         assert plugin_paths.source_of("parser", "emby.py") == "user"
         assert "my-custom" in open(path, encoding="utf-8").read(), \
             "用户目录优先级应让自定义版本在升级后依然生效"
+
+class TestChannelApiShadowedPlugin:
+    """#5: 通道主表 shadow 字段（同名用户副本遮蔽内置）。"""
+
+    @classmethod
+    def setup_class(cls):
+        db.init_db()
+        from api import create_app
+        cls.client = create_app().test_client()
+
+    def setup_method(self):
+        self.d = _TmpUserDirs()
+        conn = db._conn()
+        conn.execute(
+            "INSERT INTO channels (name,type,config,enabled) VALUES (?,?,?,1)",
+            ("sh_ch", "wechat_work_bot", "{}"))
+        conn.commit()
+        # 清掉队列等无关行
+        for t in ("message_queue", "source_channels"):
+            try:
+                conn.execute("DELETE FROM %s" % t)
+            except sqlite3.OperationalError:
+                pass
+        conn.commit()
+
+    def teardown_method(self):
+        self.d.cleanup()
+
+    def _ch(self, name="sh_ch"):
+        return {p["name"]: p for p in json.loads(self.client.get("/api/channels").data)}[name]
+
+    def test_channel_api_flags_shadowed_plugin(self):
+        """未遮蔽 → False；同名用户副本遮蔽内置后 → True。"""
+        ch = self._ch()
+        assert ch["plugin_shadowed"] is False, "未遮蔽应 False"
+        # 放同名用户副本遮蔽内置 wechat_work_bot.py
+        self.d.write("channel", "wechat_work_bot.py", "class Channel: pass\n")
+        ch = self._ch()
+        assert ch["plugin_shadowed"] is True, "遮蔽后应 True"
+        assert ch["plugin_missing"] is False, "文件存在，不算缺失"
