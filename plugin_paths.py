@@ -155,9 +155,11 @@ def list_plugins(kind):
 
 
 def read_source_meta(path, prefix):
-    """从插件源码里读 `{prefix}_NAME/_DESC/_VERSION`（正则，不执行代码）。
+    """从插件源码里读 `{prefix}_NAME/_DESC/_VERSION/_EGO_MIN_VERSION`
+    （正则，不执行代码）。
 
     解析器用这个（避免为了列表接口去执行每个文件）；通道直接用类属性。
+    `EGO_MIN_VERSION` 可选：插件要求的最小 EGo 主版本（如 "1.3"）。
     """
     import re
     try:
@@ -174,6 +176,7 @@ def read_source_meta(path, prefix):
         "name": grab(f"{prefix}_NAME"),
         "desc": grab(f"{prefix}_DESC"),
         "version": grab(f"{prefix}_VERSION"),
+        "ego_min_version": grab(f"{prefix}_EGO_MIN_VERSION"),
     }
 
 

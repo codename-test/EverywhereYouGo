@@ -357,6 +357,18 @@ class TestPluginMetadataAndMissingState:
         assert meta["name"] == "通用 JSON"
         assert meta["version"], "内置解析器应声明 PARSER_VERSION"
 
+
+    def test_read_source_meta_ego_min_version(self):
+        """#10: 解析器 metadata 支持 EGO_MIN_VERSION（可选，缺失向后兼容）。"""
+        code1 = "PARSER_NAME = 'Meta'\nPARSER_VERSION = '1.0'\nPARSER_EGO_MIN_VERSION = '1.3'\n"
+        path = self.d.write("parser", "m1.py", code1)
+        meta = plugin_paths.read_source_meta(path, "PARSER")
+        assert meta["name"] == "Meta"
+        assert meta["ego_min_version"] == "1.3", "应解析 EGO_MIN_VERSION"
+        code2 = "PARSER_NAME = 'NoMv'\nPARSER_VERSION = '1.0'\n"
+        path2 = self.d.write("parser", "m2.py", code2)
+        meta2 = plugin_paths.read_source_meta(path2, "PARSER")
+        assert meta2["ego_min_version"] == "", "缺失应空串（向后兼容）"
     def test_all_builtin_plugins_declare_version(self):
         """内置插件都该有版本号，否则升级时无法判断新旧。"""
         for kind, prefix in (("parser", "PARSER"), ("channel", "CHANNEL")):

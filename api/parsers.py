@@ -30,6 +30,7 @@ def _decorate(p):
     if path:
         meta = plugin_paths.read_source_meta(path, "PARSER")
         p["version"] = meta.get("version", "")
+        p["ego_min_version"] = meta.get("ego_min_version", "")
         if meta.get("name"):
             # 源码里的名字更权威（内置解析器随镜像更新可能改名）
             p["name"] = meta["name"]
