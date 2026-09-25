@@ -123,8 +123,9 @@ class SQLiteQueueBackend:
         这类「没轮到我发」不应算作发送失败，否则消息会在故障期内被耗尽重试次数，
         直接跌进死信队列。
 
-        超过 max_defers 次仍未能发出，则交回正常重试/DLQ 路径处理，
-        避免故障通道让队列无限堆积。
+        超过 max_defers 次仍未发出时**直接移入死信队列**，并写明原因是
+        「一直没轮到发送」而不是「发送失败」：它从来没被真正发出去，
+        走 nack() 会把二者混为一谈（多计一次重试、错误信息也误导排查）。
         """
         with self._lock:
             conn = _conn()
@@ -143,8 +144,22 @@ class SQLiteQueueBackend:
                 )
                 conn.commit()
                 return
-        # 超过延迟上限：锁外走正常重试/死信路径
-        self.nack(queue_id, f"deferred {dc - 1} times without sending (circuit open / rate limited)")
+
+            conn.execute(
+                """INSERT INTO dead_letter_queue
+                   (trace_id, source_id, msg_json, channel_id, template_id,
+                    dedup_key, error, retry_count)
+                   SELECT trace_id, source_id, msg_json, channel_id, template_id,
+                          dedup_key, ?, retry_count
+                   FROM message_queue WHERE id=?""",
+                (f"deferred {dc - 1} times without ever being sent "
+                 f"(circuit open / rate limited for too long)", queue_id)
+            )
+            conn.execute("DELETE FROM message_queue WHERE id=?", (queue_id,))
+            conn.commit()
+            log.logger.warning(
+                f"[defer] queue#{queue_id} deferred {dc - 1} times and never sent; "
+                f"moved to DLQ (retry budget untouched)")
 
     def flush_processing_to_dlq(self, reason="shutdown"):
         """把仍处于 processing 的任务移入死信队列（优雅停机超时兜底）。

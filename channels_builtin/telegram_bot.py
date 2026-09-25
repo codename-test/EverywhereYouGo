@@ -7,6 +7,7 @@ import log
 class Channel(BaseChannel):
     CHANNEL_TYPE = "telegram_bot"
     CHANNEL_NAME = "Telegram"
+    CHANNEL_VERSION = "1.0"
     CONFIG_FIELDS = [
     {
         "name": "bot_token",

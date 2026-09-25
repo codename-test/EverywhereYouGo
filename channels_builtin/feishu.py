@@ -7,6 +7,7 @@ import log
 class Channel(BaseChannel):
     CHANNEL_TYPE = "feishu"
     CHANNEL_NAME = "飞书"
+    CHANNEL_VERSION = "1.0"
     CONFIG_FIELDS = [
     {
         "name": "webhook_url",

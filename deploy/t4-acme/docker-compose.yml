@@ -34,6 +34,8 @@ services:
     volumes:
       - ego_data:/app/data
       - ego_config:/app/config
+      - ego_parsers:/app/parsers     # 用户上传的解析器（内置在 parsers_builtin/，随镜像更新）
+      - ego_channels:/app/channels   # 用户上传的通道插件（内置在 channels_builtin/）
       - ego_certs:/app/certs    # EGo 自签名证书（Flask 自动生成并持久化）
     networks:
       - ego_net
@@ -77,4 +79,6 @@ volumes:
   ego_data:
   ego_config:
   ego_certs:
+  ego_parsers:
+  ego_channels:
   acme_conf:

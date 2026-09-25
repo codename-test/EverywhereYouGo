@@ -80,7 +80,40 @@ Hand-editing `config/*.json` is only read on first import when the database is e
 it is not the normal path for applying changes.
 
 System settings (DND, log level, etc.), the message log and the queue are also stored in SQLite.
-For backup/restore use **Settings → Backup**, which packages `config/*.json` + `parsers/*.py`.
+For backup/restore use **Settings → Backup**, which packages `config/*.json` plus **your uploaded**
+`parsers/*.py` and `channels/*.py`.
+
+## Plugin Directories
+
+Built-in plugins and user-uploaded plugins live in **separate directories**:
+
+| Directory | Content | Docker |
+|-----------|---------|--------|
+| `parsers_builtin/` | Built-in parsers | Shipped in the image, **no volume** |
+| `parsers/` | Your uploaded parsers | `ego_parsers` volume — survives container recreation |
+| `channels_builtin/` | Built-in channel plugins | Shipped in the image, **no volume** |
+| `channels/` | Your uploaded channel plugins | `ego_channels` volume — survives container recreation |
+
+Rules:
+
+- **Resolution order: user directory first**, then built-in
+- **Uploading a name that collides with a built-in is rejected** (with a clear error) —
+  built-ins are updated with the image, so a same-named file would never take effect
+- **Built-in plugins are read-only**: viewable in the WebUI, but not editable or deletable
+- To actually change a built-in's behaviour, put your version under a **different filename**
+  in the user directory, or edit the source and rebuild the image
+
+> **Why the split is required**: mounting a volume over the directory that holds the built-ins
+> makes Docker copy the image's contents into the volume on first creation, and the volume
+> becomes authoritative from then on — image upgrades would never reach the built-ins.
+> With one shared directory there is no way out: you either lose user files, or the built-ins
+> can never be upgraded.
+
+**Upgrading from an older version**: older releases wrote user uploads straight into the
+built-in directory, which had no persistence — recreating the container lost them.
+Take a backup first (**Settings → Backup**), then upgrade and restore. Restore writes into the
+new user directories and automatically skips entries that collide with built-ins
+(so a stale copy cannot shadow the upgraded built-in).
 
 ## Parsers
 

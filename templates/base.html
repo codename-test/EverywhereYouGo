@@ -27,6 +27,7 @@ body { padding-top: 60px; background: #f5f7fa; }
 .update-popover ul { margin: 0; padding-left: 16px; }
 .update-popover li { margin-bottom: 2px; }
 .update-popover a { color: #3b82f6; text-decoration: none; }
+.update-warning { color: #b91c1c; font-weight: 700; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; font-size: 0.8rem; line-height: 1.5; }
 .main { margin-left: 200px; padding: 24px; }
 .card { border: none; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 pre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; font-size: 13px; max-height: 400px; overflow: auto; }
@@ -69,6 +70,7 @@ pre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; fo
   <div class="sidebar-version" id="sidebarVersion">
     EGo v{{ version }}<span class="update-dot" id="updateDot" style="display:none" onclick="toggleUpdatePopover()" title="{{ _('ver.new_version') }}"></span>
     <div class="update-popover" id="updatePopover">
+      <div class="update-warning" id="updateWarning" style="display:none"></div>
       <h6 id="updateTitle"></h6>
       <ul id="updateChangelog"></ul>
       <div class="mt-2" id="updateLink"></div>
@@ -136,6 +138,19 @@ function switchLang(lang) {
 
         var titleEl = document.getElementById('updateTitle');
         titleEl.textContent = 'v' + d.latest_version + (d.release_date ? ' (' + d.release_date + ')' : '');
+
+        // 升级前必读的红字告警（version.json 的 upgrade_warning，按当前语言取）
+        var warn = d.upgrade_warning;
+        if (warn) {
+          var lang = document.documentElement.lang || 'zh';
+          var text = (typeof warn === 'string') ? warn
+                     : (warn[lang] || warn.zh || warn.en || '');
+          if (text) {
+            var wEl = document.getElementById('updateWarning');
+            wEl.textContent = '\u26A0 ' + text;
+            wEl.style.display = 'block';
+          }
+        }
 
         var list = document.getElementById('updateChangelog');
         (d.changelog || []).forEach(function(line) {

@@ -10,5 +10,9 @@
     "性能：SQLite synchronous=NORMAL，单次 commit 6.98ms→0.02ms，吞吐 31→322 req/s",
     "修复重试被推迟 8 小时：nack 用本地时间写 next_retry_at，与 SQLite UTC 基准不一致",
     "韧性 API：GET /api/resilience、限流设置、熔断重置"
-  ]
+  ],
+  "upgrade_warning": {
+    "zh": "请先行备份所有配置：本次升级包含插件目录拆分（破坏性变更）。升级前请在「系统设置 → 备份」导出配置与插件，否则用户上传的插件可能丢失。",
+    "en": "Back up all configuration first: this upgrade contains a breaking change (plugin directory split). Export config and plugins via Settings → Backup before upgrading, or user-uploaded plugins may be lost."
+  }
 }

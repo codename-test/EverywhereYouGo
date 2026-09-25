@@ -7,6 +7,7 @@
 """
 
 import os
+import time
 import threading
 import collections
 import json
@@ -148,6 +149,7 @@ class _IngressPool:
         self._queue = collections.deque()
         self._cond = threading.Condition()
         self._stopped = False
+        self._active = 0        # 在途任务数（用于停机排空）
         for i in range(max_workers):
             threading.Thread(
                 target=self._worker, daemon=True, name=f"ingress-{i}"
@@ -170,15 +172,41 @@ class _IngressPool:
                 if self._stopped:
                     return
                 fn, args = self._queue.popleft()
+                self._active += 1
             try:
                 fn(*args)
             except Exception as e:
                 log.logger.warning(f"Ingress worker error: {e}")
+            finally:
+                with self._cond:
+                    self._active -= 1
+                    self._cond.notify_all()
 
-    def shutdown(self):
+    def active_count(self):
+        with self._cond:
+            return self._active
+
+    def shutdown(self, wait_seconds=5.0):
+        """停止接收新任务，并**等待在途请求收尾**（超时即放弃）。
+
+        原先只置 `_stopped` 就返回 —— 停机时在途请求被直接掐断，
+        客户端会看到连接被重置，日志里也没有交代。
+        """
         with self._cond:
             self._stopped = True
             self._cond.notify_all()
+
+        deadline = time.time() + max(0.0, wait_seconds)
+        while time.time() < deadline:
+            if self.active_count() == 0:
+                break
+            time.sleep(0.02)
+        left = self.active_count()
+        if left:
+            log.logger.warning(
+                f"Ingress pool shutdown: {left} request(s) still in flight after "
+                f"{wait_seconds}s, giving up")
+        return left
 
 
 # ── 入口 HTTP 服务（固定线程池） ──────────────

@@ -1,4 +1,4 @@
-# EGo — 通用信息转发平台 v1.2.4
+# EGo — 通用信息转发平台
 FROM python:3.11-alpine3.18
 
 LABEL maintainer="EGo Team"
@@ -13,7 +13,7 @@ RUN set -eux && \
     apk -U --no-cache add tzdata openssl && \
     cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/Shanghai" > /etc/timezone && \
-    mkdir -p /app/data /app/config /app/parsers
+    mkdir -p /app/data /app/config /app/parsers /app/channels
 
 WORKDIR /app
 
@@ -22,7 +22,10 @@ RUN python3 -m pip install --no-cache-dir -r requirements.txt -q
 
 COPY . .
 
-VOLUME ["/app/data", "/app/config"]
+# 持久化：运行时产生的数据 + **用户上传的插件**。
+# 内置插件在 parsers_builtin/ 与 channels_builtin/（随镜像更新），故意**不**打卷——
+# named volume 首次创建会把镜像内容拷进去，之后以卷为准，内置插件就永远升不上去了。
+VOLUME ["/app/data", "/app/config", "/app/parsers", "/app/channels"]
 
 ENV WEB_PORT=5000
 ENV WEB_SSL_PORT=5001

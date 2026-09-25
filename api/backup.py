@@ -11,11 +11,14 @@ import datetime as _dt
 import db
 import parser_loader
 import i18n
+import log
+import plugin_paths
 from flask import Blueprint, request, jsonify, Response, send_file
 
 backup_bp = Blueprint("backup", __name__)
 
-PARSERS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "parsers")
+PARSERS_DIR = plugin_paths.user_dir("parser")    # 兼容旧引用：只指用户目录
+CHANNELS_DIR = plugin_paths.user_dir("channel")  # 用户通道插件目录
 VERSION = "1.0.1"
 
 # 恢复时解压总大小上限（防 ZIP 炸弹撑爆磁盘/volume）
@@ -49,8 +52,8 @@ def _export_parser(p):
 
 def _export_parser_with_code(p):
     data = _export_parser(p)
-    fpath = os.path.join(PARSERS_DIR, p["filename"])
-    if os.path.isfile(fpath):
+    fpath = plugin_paths.resolve("parser", p["filename"])   # 内置/用户都支持导出
+    if fpath:
         with open(fpath, "r", encoding="utf-8") as f:
             data["code"] = f.read()
     else:
@@ -88,8 +91,8 @@ def api_export_single(item_type, item_id):
         item = db.get_parser(item_id)
         if not item:
             return jsonify({"error": i18n._("err.not_found")}), 404
-        fpath = os.path.join(PARSERS_DIR, item["filename"])
-        if not os.path.isfile(fpath):
+        fpath = plugin_paths.resolve("parser", item["filename"])
+        if not fpath:
             return jsonify({"error": i18n._("err.file_not_found_disk")}), 404
         return send_file(fpath, as_attachment=True, download_name=item["filename"])
 
@@ -117,9 +120,15 @@ def api_backup():
             p = os.path.join(CONFIG_DIR, fn)
             if os.path.isfile(p):
                 zf.write(p, f"config/{fn}")
-        for f in os.listdir(PARSERS_DIR):
-            if f.endswith(".py"):
-                zf.write(os.path.join(PARSERS_DIR, f), f"parsers/{f}")
+        # 只打包**用户**插件：内置随镜像发布，打进备份反而会在恢复时
+        # 用旧副本遮蔽新版内置插件
+        for kind, arc in (("parser", "parsers"), ("channel", "channels")):
+            d = plugin_paths.user_dir(kind)
+            if not os.path.isdir(d):
+                continue
+            for f in sorted(os.listdir(d)):
+                if f.endswith(".py"):
+                    zf.write(os.path.join(d, f), f"{arc}/{f}")
         zf.writestr("version.txt", VERSION)
     buf.seek(0)
     return Response(buf.getvalue(), mimetype="application/zip",
@@ -142,15 +151,17 @@ def api_restore():
 
     config_files = [n for n in zf.namelist() if n.startswith("config/")]
     parser_files = [n for n in zf.namelist() if n.startswith("parsers/")]
+    channel_files = [n for n in zf.namelist() if n.startswith("channels/")]
 
-    result = {"ok": True, "dry_run": dry_run, "config": config_files, "parsers": parser_files}
+    result = {"ok": True, "dry_run": dry_run, "config": config_files,
+              "parsers": parser_files, "channels": channel_files}
 
     if dry_run:
         return jsonify(result)
 
     # 防 ZIP 炸弹：累计未压缩大小，超过上限即拒绝（#32）
     total_size = 0
-    for name in config_files + parser_files:
+    for name in config_files + parser_files + channel_files:
         total_size += zf.getinfo(name).file_size
         if total_size > MAX_RESTORE_SIZE:
             zf.close()
@@ -164,13 +175,26 @@ def api_restore():
             with open(os.path.join(CONFIG_DIR, fname), "wb") as f:
                 f.write(zf.read(name))
 
-    for name in parser_files:
-        if name.endswith(".py"):
-            fname = os.path.basename(name[len("parsers/"):])
+    # 恢复进**用户目录**；与内置同名的条目跳过
+    # （内置随镜像更新，恢复旧副本会遮蔽新版内置插件）
+    plugin_paths.ensure_user_dirs()
+    skipped_builtin = []
+    for names, kind, prefix in ((parser_files, "parser", "parsers/"),
+                                (channel_files, "channel", "channels/")):
+        for name in names:
+            if not name.endswith(".py"):
+                continue
+            fname = os.path.basename(name[len(prefix):])
             if not _safe_filename(fname):
                 continue
-            with open(os.path.join(PARSERS_DIR, fname), "wb") as f:
+            if plugin_paths.is_builtin(kind, fname):
+                skipped_builtin.append(fname)
+                continue
+            with open(os.path.join(plugin_paths.user_dir(kind), fname), "wb") as f:
                 f.write(zf.read(name))
+    if skipped_builtin:
+        result["skipped_builtin"] = skipped_builtin
+        log.logger.info(f"Restore: skipped built-in plugin(s): {skipped_builtin}")
 
     zf.close()
 
@@ -307,7 +331,8 @@ def _import_execute(data, mode="insert"):
                 summary["parsers"]["skipped"] += 1
                 continue
             if p.get("code"):
-                fpath = os.path.join(PARSERS_DIR, fn)
+                plugin_paths.ensure_user_dirs()
+                fpath = os.path.join(plugin_paths.user_dir("parser"), fn)
                 with open(fpath, "w", encoding="utf-8") as f:
                     f.write(p["code"])
                 summary["parser_files"]["written"] += 1

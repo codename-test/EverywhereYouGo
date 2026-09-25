@@ -91,6 +91,12 @@ def init_ego():
     log.logger.info("Initializing database...")
     db.init_db()
 
+    # 1.05 确保用户插件目录存在
+    # （parsers/ 与 channels/ 是用户目录，裸机运行时不在版本库里；
+    #  内置插件在 parsers_builtin/ 与 channels_builtin/，随镜像发布）
+    import plugin_paths
+    plugin_paths.ensure_user_dirs()
+
     # 1.1 挂载数据库日志处理器（处理器由 db/ 提供，log 模块不反向依赖 db）
     from db.log_handler import make_log_handler
     log.setup_db_logging(make_log_handler())
@@ -98,6 +104,15 @@ def init_ego():
     # 1.5 加载配置（JSON → SQLite）
     import config_manager
     config_manager.load_all()
+
+    # 1.55 把内置解析器登记进 parsers 表（幂等）
+    # 内置解析器随镜像新增，但 parsers 表只认数据库记录 —— 不登记就选不到
+    try:
+        added = db.sync_builtin_parsers()
+        if added:
+            log.logger.info(f"Registered built-in parser(s): {added}")
+    except Exception as e:
+        log.logger.error(f"sync_builtin_parsers failed: {e}")
 
     # 1.6 注册路径路由（需要在 DB 初始化后读取前缀配置）
     import path_router

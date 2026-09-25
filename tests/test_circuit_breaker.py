@@ -112,10 +112,12 @@ class TestStateMachine:
         time.sleep(0.15)
         allowed, _ = self.b.should_allow(cid)
         assert allowed, "冷却到期后应放行探测（HALF_OPEN）"
+        # 这次放行本身就是第一个探测，必须记录结果才会释放闸门
+        self.b.record(cid, True, "")
 
-        for _ in range(circuit_breaker.HALF_OPEN_NEEDED):
+        for _ in range(circuit_breaker.HALF_OPEN_NEEDED - 1):
             allowed, _ = self.b.should_allow(cid)
-            assert allowed
+            assert allowed, "上一个探测返回后应放行下一个"
             self.b.record(cid, True, "")
 
         assert self.b.should_allow(cid)[0] is True
@@ -137,6 +139,39 @@ class TestStateMachine:
         st = self.b._states[cid]
         assert st.state == circuit_breaker.OPEN
         assert st.open_count == 2, "探测失败应重新 OPEN 且退避计数 +1"
+
+    def test_half_open_allows_only_one_probe_at_a_time(self, monkeypatch):
+        """HALF_OPEN 期间只放一个探测，避免刚恢复就打出一批请求。"""
+        monkeypatch.setattr(circuit_breaker, "OPEN_BASE_SECONDS", 0.05)
+        monkeypatch.setattr(circuit_breaker, "OPEN_MAX_SECONDS", 0.1)
+        cid = 120
+        for _ in range(circuit_breaker.CONSECUTIVE_THRESHOLD):
+            self.b.record(cid, False, "HTTP 500")
+
+        time.sleep(0.08)
+        first, _ = self.b.should_allow(cid)
+        assert first is True, "冷却到期后应放行第一个探测"
+
+        for _ in range(5):
+            again, reason = self.b.should_allow(cid)
+            assert again is False, "探测在途时不应再放行"
+            assert "probing" in reason
+
+        # 探测返回后闸门释放
+        self.b.record(cid, True, "")
+        assert self.b.should_allow(cid)[0] is True
+
+    def test_probe_gate_released_on_failure_too(self, monkeypatch):
+        monkeypatch.setattr(circuit_breaker, "OPEN_BASE_SECONDS", 0.05)
+        monkeypatch.setattr(circuit_breaker, "OPEN_MAX_SECONDS", 0.1)
+        cid = 121
+        for _ in range(circuit_breaker.CONSECUTIVE_THRESHOLD):
+            self.b.record(cid, False, "HTTP 500")
+        time.sleep(0.08)
+        self.b.should_allow(cid)
+        assert self.b._states[cid].probe_in_flight is True
+        self.b.record(cid, False, "HTTP 500")
+        assert self.b._states[cid].probe_in_flight is False, "探测失败也要释放闸门"
 
     def test_state_persisted_and_restored(self):
         cid = 106

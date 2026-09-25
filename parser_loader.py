@@ -2,17 +2,20 @@
 # -*- coding: UTF-8 -*-
 """
 解析器插件加载器。
-动态加载 parsers/ 目录下的 .py 文件，调用 parse() 函数。
+动态加载解析器（内置目录 + 用户目录，用户优先），调用 parse() 函数。
+目录布局见 plugin_paths.py。
 """
 
+import hashlib
 import importlib.util
 import os
 import sys
 import traceback
 import threading
 import log
+import plugin_paths
 
-PARSERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "parsers")
+PARSERS_DIR = plugin_paths.user_dir("parser")   # 兼容旧引用：指向用户目录
 
 
 def _t(key, fallback):
@@ -44,9 +47,11 @@ def load_parser(filename: str):
         if filename in _parser_cache:
             return _parser_cache[filename]
 
-    filepath = os.path.join(PARSERS_DIR, filename)
-    if not os.path.isfile(filepath):
-        raise FileNotFoundError(f"Parser not found: {filepath}")
+    filepath = plugin_paths.resolve("parser", filename)
+    if not filepath:
+        raise FileNotFoundError(
+            f"Parser not found: {filename} "
+            f"(the parser file may have been deleted; re-upload it or pick another)")
 
     mod_name = _module_name(filename)
     spec = importlib.util.spec_from_file_location(mod_name, filepath)
@@ -62,6 +67,22 @@ def load_parser(filename: str):
 
     log.logger.info(f"Parser loaded: {filename}")
     return mod
+
+
+def calc_parser_hash(filename: str) -> str:
+    """解析器文件内容的 MD5 前 12 位。
+
+    用于判断"重发时解析器是否已变更"。走 plugin_paths 解析，
+    因此内置与用户目录都能正确定位（原先两处各自拼 parsers/ 路径，已收敛到这里）。
+    """
+    path = plugin_paths.resolve("parser", filename)
+    if not path:
+        return ""
+    try:
+        with open(path, "rb") as f:
+            return hashlib.md5(f.read()).hexdigest()[:12]
+    except Exception:
+        return ""
 
 
 def reload_parser(filename: str):

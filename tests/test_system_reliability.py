@@ -276,6 +276,58 @@ class TestCrashRecovery(_Base):
         assert row["retry_count"] == 0, "恢复不应消耗重试次数"
 
 
+class TestUnifiedSendPath(_Base):
+    """flush / retry 走 `_do_send_direct`，必须与 worker 路径受**同样的**熔断/限流约束。
+
+    原先这条路径既不判熔断、不记录熔断结果、也不限流 —— 整层韧性保护等于被绕过。
+    """
+
+    def _direct(self, trace, ch):
+        sender_engine.create_channel = lambda t, c: ch
+        self._mkmsg(trace, "SENDING")
+        matched = [{"channel_id": 1, "template_id": 1}]
+        return sender_engine._do_send_direct(trace, 1, {"title": "T"}, matched)
+
+    def test_direct_path_respects_breaker(self, monkeypatch):
+        monkeypatch.setattr(circuit_breaker, "CONSECUTIVE_THRESHOLD", 2)
+        for _ in range(2):
+            self.breaker.record(1, False, "HTTP 500")
+        assert self.breaker.should_allow(1)[0] is False
+
+        ch = ScriptedChannel([(True, "")])
+        ok, _ = self._direct("dr1", ch)
+
+        assert ch.calls == 0, "熔断期间不应真的发起发送"
+        assert ok is False
+        assert db.get_message("dr1")["status"] == "SENDING", \
+            "全部被拦下时不应改写消息终态（留给后续重试）"
+
+    def test_direct_path_respects_rate_limit(self):
+        self.limiter.set_rate(1, 1)      # 每分钟 1 条
+        ch = ScriptedChannel([(True, "")])
+        ok1, _ = self._direct("dr2", ch)
+        assert ok1 is True and ch.calls == 1
+
+        ok2, _ = self._direct("dr3", ch)
+        assert ch.calls == 1, "限流期间不应再发"
+        assert ok2 is False
+
+    def test_direct_path_records_failures_into_breaker(self, monkeypatch):
+        """直接路径的失败也要累计到熔断器（原先完全不记录）。"""
+        monkeypatch.setattr(circuit_breaker, "CONSECUTIVE_THRESHOLD", 3)
+        ch = ScriptedChannel([(False, "HTTP 503")])
+        for i in range(3):
+            self._direct("df%d" % i, ch)
+        assert self.breaker.should_allow(1)[0] is False, \
+            "直接路径的连续失败应触发熔断"
+
+    def test_direct_path_success_still_works(self):
+        ch = ScriptedChannel([(True, "")])
+        ok, _ = self._direct("ds1", ch)
+        assert ok is True and ch.calls == 1
+        assert db.get_message("ds1")["status"] == "SUCCESS"
+
+
 class TestSustainedLoad(_Base):
     """持续负载：消息守恒（不丢、不重），终态可对账。"""
 

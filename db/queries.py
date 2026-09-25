@@ -6,6 +6,7 @@
 """
 
 import json
+import re
 import sqlite3
 import log
 from .connection import _conn
@@ -203,6 +204,52 @@ def update_channel(channel_id, **kwargs):
     vals.append(channel_id)
     _conn().execute(f"UPDATE channels SET {', '.join(sets)} WHERE id=?", vals)
     _conn().commit()
+
+
+def _read_parser_meta(path):
+    """从解析器源码里读 PARSER_NAME / PARSER_DESC（不执行代码，纯正则）。
+
+    解析器文件是我们自己随镜像发布的，用正则即可；避免启动时执行任意文件。
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            src = f.read()
+    except Exception:
+        return None
+
+    def grab(key):
+        m = re.search(r'^%s\s*=\s*["\'](.+?)["\']' % key, src, re.M)
+        return m.group(1) if m else None
+
+    name = grab("PARSER_NAME")
+    if not name:
+        return None
+    return name, (grab("PARSER_DESC") or ""), (grab("PARSER_VERSION") or "")
+
+
+def sync_builtin_parsers():
+    """把**内置**解析器登记进 parsers 表（幂等）。
+
+    内置解析器随镜像新增，但 parsers 表只认数据库记录 —— 不登记的话，
+    新版本带来的内置解析器在 WebUI 里根本选不到。
+    名字取文件里的 PARSER_NAME，没写就用文件名。
+    """
+    import plugin_paths
+
+    added = []
+    for item in plugin_paths.list_plugins("parser"):
+        if item.get("source") != "builtin":
+            continue
+        fn = item["filename"]
+        exists = _conn().execute(
+            "SELECT 1 FROM parsers WHERE filename=?", (fn,)).fetchone()
+        if exists:
+            continue
+        meta = _read_parser_meta(item["path"]) or (fn[:-3] if fn.endswith(".py") else fn,
+                                                   "内置解析器", "")
+        if create_parser(meta[0], fn, meta[1]):
+            added.append(fn)
+    return added
 
 
 def delete_channel(channel_id):

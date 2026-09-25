@@ -8,17 +8,22 @@ import shutil
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import parser_loader
+import plugin_paths
 
 
 # ── 辅助：创建临时 parser 目录 ──
 
 class TempParserDir:
-    """用临时目录替换 PARSERS_DIR，测试结束后恢复。"""
+    """把**用户解析器目录**指向临时目录，测试结束后恢复。
+
+    插件目录拆分后，解析顺序是「用户目录 → 内置目录」（见 plugin_paths.py），
+    所以只需替换用户目录，内置的 emby.py 等仍可正常加载。
+    """
 
     def __init__(self):
-        self.original_dir = parser_loader.PARSERS_DIR
+        self.original_dir = plugin_paths.PARSERS_USER
         self.tmp_dir = tempfile.mkdtemp()
-        parser_loader.PARSERS_DIR = self.tmp_dir
+        plugin_paths.PARSERS_USER = self.tmp_dir
         # 同时清缓存
         parser_loader._parser_cache.clear()
 
@@ -28,7 +33,7 @@ class TempParserDir:
             f.write(code)
 
     def cleanup(self):
-        parser_loader.PARSERS_DIR = self.original_dir
+        plugin_paths.PARSERS_USER = self.original_dir
         parser_loader._parser_cache.clear()
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 

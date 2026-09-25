@@ -5,11 +5,11 @@
 import os
 import db
 import i18n
+import plugin_paths
 from flask import Blueprint, render_template
 
 pages_bp = Blueprint("pages", __name__)
 
-PARSERS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "parsers")
 VERSION = "1.3.0"
 
 
@@ -54,7 +54,8 @@ def sources_page():
 def parsers_page():
     parsers = db.get_parsers()
     for p in parsers:
-        p["exists"] = os.path.isfile(os.path.join(PARSERS_DIR, p["filename"]))
+        p["exists"] = plugin_paths.resolve("parser", p["filename"]) is not None
+        p["source"] = plugin_paths.source_of("parser", p["filename"]) or "missing"
     return _render("parsers_page.html", i18n._("parser.title"), "parsers", parsers=parsers)
 
 

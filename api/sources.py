@@ -15,9 +15,6 @@ from api.validation import (
 
 sources_bp = Blueprint("sources", __name__)
 
-PARSERS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "parsers")
-
-
 @sources_bp.route("/api/sources", methods=["GET"])
 def api_sources():
     """Return top-level sources (groups + port-mode) with nested sub-routes."""

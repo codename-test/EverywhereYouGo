@@ -72,6 +72,13 @@ class TestRestore:
     def _patch_dirs(self, monkeypatch):
         import api.backup as bk
         import config_manager
+        import plugin_paths
+        # 插件目录拆分后，恢复写入走 plugin_paths 解析出的**用户目录**
+        # （内置目录随镜像发布，不参与恢复），所以 patch 这一层。
+        monkeypatch.setattr(plugin_paths, "PARSERS_USER", self.parsers_dir)
+        monkeypatch.setattr(plugin_paths, "CHANNELS_USER",
+                            os.path.join(self.tmp, "channels"))
+        # 保留对 bk 常量的 patch，兼容仍在直接用它的代码路径
         monkeypatch.setattr(bk, "PARSERS_DIR", self.parsers_dir)
         # /api/restore 在函数内 `from config_manager import CONFIG_DIR`，
         # 调用时才绑定，故 patch 源模块属性即可生效。
