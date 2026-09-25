@@ -172,6 +172,10 @@ not pushed a second time. Use `scope=all` to force a full re-push.
 - **Restore**: Upload ZIP package, automatically takes effect after overwriting configuration
 - **JSON Import**: Supports dry_run preview, insert/overwrite two modes, dependency check
 
+> **Security note**
+> - The backup ZIP contains **full push credentials** (SMTP password / auth code / token, etc.) — keep it secure and never share it.
+> - JSON export masks sensitive fields (`password` / `token` / `secret` / `webhook` / `device_key`, etc.) as `***` for display and archiving only. Full credentials are preserved only in the backup ZIP and restored from it.
+
 ### Channel Circuit Breaker
 Automatically isolates a channel that keeps failing, so one broken third party cannot
 drag down the whole send path:

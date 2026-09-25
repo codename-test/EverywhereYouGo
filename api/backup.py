@@ -43,6 +43,28 @@ def _safe_filename(fname):
 
 # ── Export helpers ──
 
+# Export 脱敏的敏感字段关键字（密码/授权码/token/secret/webhook/device_key...）。
+# 仅 Export（JSON 文件）脱敏；Backup zip 保留完整凭据以便恢复。
+_SENSITIVE_KEYS = (
+    "password", "auth_code", "token", "secret",
+    "apikey", "api_key", "webhook", "device_key",
+    "access_token", "appsecret", "client_secret",
+)
+
+def _mask_config(config):
+    """Export 时对敏感字段脱敏（值隐藏为 ***），保留结构。"""
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except ValueError:
+            return config
+    if not isinstance(config, dict):
+        return config
+    return {
+        k: "***" if any(p in k.lower() for p in _SENSITIVE_KEYS) else v
+        for k, v in config.items()
+    }
+
 def _export_source(s):
     return {k: s[k] for k in ("id", "name", "port", "parser_id", "enabled", "created_at")}
 
@@ -63,7 +85,14 @@ def _export_parser_with_code(p):
 
 
 def _export_channel(c):
-    return {k: c[k] for k in ("id", "name", "type", "config", "enabled", "created_at")}
+    return {
+        "id": c["id"],
+        "name": c["name"],
+        "type": c["type"],
+        "config": _mask_config(c["config"]),
+        "enabled": bool(c["enabled"]),
+        "created_at": c["created_at"],
+    }
 
 
 def _export_template(t):

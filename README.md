@@ -164,6 +164,10 @@ def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
 - **恢复**：上传 ZIP 包，覆盖配置后自动生效
 - **JSON 导入**：支持 dry_run 预览、insert/overwrite 两种模式、依赖检查
 
+> **安全提示**
+> - 备份 ZIP 内含**完整推送凭据**（SMTP 密码 / 授权码 / token 等），需妥善保管，勿外泄。
+> - JSON 导出已对敏感字段（`password` / `token` / `secret` / `webhook` / `device_key` 等）脱敏为 `***`，仅用于展示与归档；完整凭据仅经备份 ZIP 保留并恢复。
+
 ### 通道熔断
 第三方渠道持续故障时自动隔离，避免拖垮整条发送链路：
 

@@ -5,6 +5,7 @@ import os
 import io
 import zipfile
 import tempfile
+import json
 import shutil
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -234,3 +235,63 @@ class TestRestoreReload:
         ch = channel_loader.load_plugin("mytest_channel.py").Channel("x")
         assert ch.send("t", "c") == (True, "NEW"), "restore 后通道缓存未刷新"
 
+
+
+class TestExportMasking:
+    """v1.3.1 改进清单 #4: Export 脱敏敏感字段（密码/授权码/token）。"""
+
+    def setup_method(self):
+        self.tmp = tempfile.mkdtemp()
+        self.config_dir = os.path.join(self.tmp, "config")
+        os.makedirs(self.config_dir)
+        os.environ["DB_PATH"] = os.path.join(self.tmp, "db.db")
+        db.init_db()
+        import api
+        self.app = api.create_app(source_mgr=None)
+        self.app.config["TESTING"] = True
+        self.client = self.app.test_client()
+        db.create_channel("mail", "smtp",
+                          '{"host":"x","password":"secret123","username":"a@b","port":465,"token":"tok"}', 1)
+
+    def teardown_method(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_export_all_masks_sensitive(self):
+        r = self.client.get("/api/export/all")
+        data = r.get_json()
+        cfg = data["channels"][0]["config"]
+        assert cfg["password"] == "***", cfg
+        assert cfg["token"] == "***", cfg
+        assert cfg["username"] == "a@b", "非敏感字段应保留"
+        assert cfg["host"] == "x"
+
+    def test_export_single_channel_masks(self):
+        r = self.client.get("/api/export/channel/1")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data["config"]["password"] == "***"
+
+    def test_backup_zip_keeps_full_config(self, monkeypatch):
+        """Backup 拷贝 config/ 文件（channels.json 含完整凭据），不脱敏。"""
+        import config_manager
+        monkeypatch.setattr(config_manager, "CONFIG_DIR", self.config_dir)
+        # 模拟应用启动时从 DB 同步的**完整** channels.json
+        channels = [
+            {"id": 1, "name": "mail", "type": "smtp",
+             "config": json.dumps({"host": "x", "password": "secret123",
+                                   "username": "a@b", "port": 465, "token": "tok"}),
+             "enabled": 1, "created_at": "t"}
+        ]
+        with open(os.path.join(self.config_dir, "channels.json"), "w", encoding="utf-8") as f:
+            json.dump(channels, f, ensure_ascii=False)
+        r = self.client.get("/api/backup")
+        assert r.status_code == 200
+        zf = zipfile.ZipFile(io.BytesIO(r.data))
+        raw = zf.read("config/channels.json")
+        channels_out = json.loads(raw)
+        cfg = channels_out[0]["config"]
+        if isinstance(cfg, str):
+            cfg = json.loads(cfg)
+        assert cfg["password"] == "secret123", "backup 应保留完整密码（不脱敏）"
+        assert cfg["token"] == "tok"
+        assert cfg["username"] == "a@b"
