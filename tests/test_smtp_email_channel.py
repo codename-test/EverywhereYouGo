@@ -224,6 +224,20 @@ class TestEndToEnd:
         stub.join(timeout=5)
         assert ok is False and "授权码" in err
 
+    def test_test_method_success(self):
+        """#5: SMTP test() 成功路径 — 连接+登录+NOOP 全过 → (True, "")。"""
+        stub = StubSMTP(auth_ok=True)
+        stub.start()
+        try:
+            ch = EmailChannel(_cfg(smtp_host="127.0.0.1", smtp_port=str(stub.port),
+                                   encryption="none"))
+            ok, err = ch.test()
+            assert ok is True, "SMTP test() 成功路径应通过：%s" % err
+            assert err == ""
+            assert "AUTH" in stub.commands and "NOOP" in stub.commands, stub.commands
+        finally:
+            stub.join(timeout=5)
+
     def test_loader_unpacks_tuple_result(self):
         """test_channel 要能把 (ok, err) 里的原因带给用户。"""
         assert channel_loader._unpack_test_result(True) == (True, "")

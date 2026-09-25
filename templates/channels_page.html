@@ -84,7 +84,7 @@
                     </td>
                     <td id="res-cell-{{ ch.id }}"><span class="text-muted">—</span></td>
                     <td>
-                        <button class="btn btn-icon btn-outline-primary btn-sm" onclick="testChannel({{ ch.id }})" title="{{ _("common.test") }}"><i class="bi bi-send"></i></button>
+                        <button class="btn btn-icon btn-outline-primary btn-sm" onclick="testChannel({{ ch.id }})" title="{% if ch.type == 'smtp_email' %}{{ _('ch.test_conn') }}{% else %}{{ _('ch.test_send') }}{% endif %}"><i class="bi bi-send"></i></button>
                         <button class="btn btn-icon btn-outline-primary btn-sm" onclick="openEditChannel({{ ch.id }})" title="{{ _("common.edit") }}"><i class="bi bi-pencil"></i></button>
                         <button class="btn btn-icon btn-outline-success btn-sm" onclick="duplicateChannel({{ ch.id }})" title="{{ _("common.copy") }}"><i class="bi bi-files"></i></button>
                         <button class="btn btn-icon btn-outline-info btn-sm" onclick="exportItem('channel',{{ ch.id }})" title="{{ _("common.export") }}"><i class="bi bi-download"></i></button>

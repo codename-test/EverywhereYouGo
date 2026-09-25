@@ -9,6 +9,7 @@ import json
 import sqlite3
 import tempfile
 import shutil
+import threading
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 _test_db_dir = tempfile.mkdtemp()
@@ -146,6 +147,48 @@ class TestChannelEndpoints:
             "SELECT COUNT(*) FROM source_channels WHERE channel_id=8").fetchone()[0] == 1
         assert conn.execute(
             "SELECT COUNT(*) FROM dedup_keys WHERE channel_id=8").fetchone()[0] == 1
+
+    # ── #5: 测试通道按类型路由 + 前端文案 ──
+
+    def _ok_webhook(self):
+        """起一个只回 {errcode:0} 的 webhook（daemon 线程 serve），返回 (port, server)。"""
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+        class _H(BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"errcode":0}')
+            def log_message(self, *a):
+                pass
+        server = HTTPServer(("127.0.0.1", 0), _H)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return server.server_address[1], server
+
+    def test_non_smtp_success_via_api(self):
+        """#5: 非 SMTP 通道走现有 .test() 逻辑；可达且 errcode=0 → {ok:true}。"""
+        port, server = self._ok_webhook()
+        try:
+            conn = db._conn()
+            conn.execute(
+                "INSERT INTO channels (id,name,type,config,enabled) VALUES (?,?,?,?,1)",
+                (80, "okbot", "wechat_work_bot",
+                 json.dumps({"webhook_url": "http://127.0.0.1:%d" % port})))
+            conn.commit()
+            d = json.loads(self.client.post("/api/channels/80/test").data)
+            assert d["ok"] is True, "可达且 errcode=0 的非 SMTP 通道应 ok:true：%r" % d
+        finally:
+            server.shutdown()
+
+    def test_frontend_i18n_keys_exist(self):
+        """#5 文案：i18n 提供 ch.test_conn(测试连接)/ch.test_send(测试发送)。"""
+        from i18n import TRANSLATIONS
+        zh = TRANSLATIONS.get("zh", {})
+        en = TRANSLATIONS.get("en", {})
+        assert zh["ch.test_conn"] == "测试连接", "SMTP 按钮文案应『测试连接』"
+        assert zh["ch.test_send"] == "测试发送", "其他按钮文案应『测试发送』"
+        assert en["ch.test_conn"] == "Test connection"
+        assert en["ch.test_send"] == "Test send"
 
     @classmethod
     def teardown_class(cls):
