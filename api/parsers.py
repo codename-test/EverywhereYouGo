@@ -25,6 +25,7 @@ def _decorate(p):
     path = plugin_paths.resolve("parser", fn)
     p["exists"] = path is not None
     p["source"] = plugin_paths.source_of("parser", fn) or "missing"
+    p["shadow_builtin"] = plugin_paths.shadows_builtin("parser", fn)
     p["version"] = ""
     if path:
         meta = plugin_paths.read_source_meta(path, "PARSER")

@@ -89,6 +89,24 @@ class TestResolution:
         assert items["my_channel.py"] == "user"
         assert items["wechat_work_bot.py"] == "builtin"
 
+    def test_list_plugins_marks_shadow_builtin(self):
+        """#5: 同名用户+内置 → list_plugins 标记 shadow_builtin=True；否则 False。"""
+        self.d.write("parser", "emby.py")          # 遮蔽内置 emby.py
+        it = {x["filename"]: x for x in plugin_paths.list_plugins("parser")}
+        assert it["emby.py"]["source"] == "user"
+        assert it["emby.py"]["shadow_builtin"] is True, "遮蔽内置应标记 shadow_builtin"
+        # 未遮蔽的内置（无用户副本）→ False
+        assert it["generic_json.py"]["shadow_builtin"] is False
+        # 新增用户插件，无同名内置 → False
+        self.d.write("parser", "brand_new.py")
+        it2 = {x["filename"]: x for x in plugin_paths.list_plugins("parser")}
+        assert it2["brand_new.py"]["shadow_builtin"] is False
+        # 通道侧：遮蔽 wechat_work_bot.py
+        self.d.write("channel", "wechat_work_bot.py", "class Channel: pass\n")
+        itc = {x["filename"]: x for x in plugin_paths.list_plugins("channel")}
+        assert itc["wechat_work_bot.py"]["shadow_builtin"] is True
+        assert itc["smtp_email.py"]["shadow_builtin"] is False, "未遮蔽的内置通道 False"
+
     def test_conflict_rule(self):
         assert plugin_paths.conflict_reason("parser", "emby.py") is not None   # 与内置同名
         assert plugin_paths.conflict_reason("parser", "brand_new.py") is None
@@ -353,6 +371,13 @@ class TestPluginMetadataAndMissingState:
         assert items["emby.py"]["source"] == "builtin"
         assert items["emby.py"]["version"]
         assert items["generic_json.py"]["name"] == "通用 JSON"
+    def test_parsers_api_exposes_shadow_builtin(self):
+        """#5: /api/parsers 暴露 shadow_builtin（用户遮蔽内置 → True）。"""
+        self.d.write("parser", "emby.py")
+        items = {p["filename"]: p for p in json.loads(self.client.get("/api/parsers").data)}
+        assert "shadow_builtin" in items["emby.py"], "shadow_builtin 字段缺失"
+        assert items["emby.py"]["shadow_builtin"] is True, "用户遮蔽内置应 True"
+        assert items["generic_json.py"]["shadow_builtin"] is False, "未遮蔽内置 False"
 
     def test_channel_plugins_api_exposes_version_and_source(self):
         items = {p["filename"]: p for p in

@@ -50,6 +50,7 @@ function loadParsers() {
       html += `<div class="card mb-2"><div class="card-body py-2 d-flex justify-content-between align-items-center">
         <div><strong>${p.name}</strong> <code>${p.filename}</code>
           ${p.exists?'<span class="badge bg-success ms-1">'+t("parser.file_exists")+'</span>':'<span class="badge bg-danger ms-1">'+t("parser.file_missing")+'</span>'}
+          ${p.shadow_builtin?'<span class="badge bg-warning text-dark ms-1" title="用户版同名文件遮蔽了内置插件">⚠ '+t("parser.shadow_builtin")+'</span>':''}
           <small class="text-muted ms-2">${p.description||''}</small></div>
         <div>
           <button class="btn btn-sm btn-outline-secondary" onclick="viewParser(${p.id})"><i class="bi bi-eye"></i></button>

@@ -257,6 +257,7 @@ TRANSLATIONS = {
         "parser.view": "查看解析器",
         "parser.file_exists": "文件存在",
         "parser.file_missing": "文件缺失",
+        "parser.shadow_builtin": "遮蔽内置插件",
         "parser.no_parsers": "暂无解析器",
         "parser.fill_name_file": "请填写名称并选择文件",
         "parser.confirm_delete": "确定删除此解析器？文件也会被删除。",
@@ -326,6 +327,7 @@ TRANSLATIONS = {
         "ch.plugin_version": "版本",
         "ch.source_builtin": "内置",
         "ch.source_user": "用户",
+        "ch.shadow_builtin": "遮蔽内置插件",
         "ch.plugin_missing": "插件缺失",
         "ch.plugin_missing_title": "该通道引用的插件文件已不存在，无法发送；请重新上传插件或改用其他通道类型",
         "ch.rate_limit_label": "出站限流（条/分钟）",
@@ -884,6 +886,7 @@ TRANSLATIONS = {
         "parser.view": "View Parser",
         "parser.file_exists": "File exists",
         "parser.file_missing": "File missing",
+        "parser.shadow_builtin": "Shadows built-in plugin",
         "parser.no_parsers": "No parsers",
         "parser.fill_name_file": "Please fill in name and select a file",
         "parser.confirm_delete": "Delete this parser? The file will also be deleted.",
@@ -952,6 +955,7 @@ TRANSLATIONS = {
         "ch.plugin_source": "Source",
         "ch.plugin_version": "Version",
         "ch.source_builtin": "Built-in",
+        "ch.shadow_builtin": "Shadows built-in plugin",
         "ch.source_user": "User",
         "ch.plugin_missing": "Plugin missing",
         "ch.plugin_missing_title": "The plugin file this channel uses no longer exists, so it cannot send. Re-upload the plugin or switch to another channel type.",
@@ -1305,3 +1309,4 @@ TRANSLATIONS = {
         "docs.by_author": "Author",
 },
 }
+

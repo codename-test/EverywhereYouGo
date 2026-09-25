@@ -263,9 +263,12 @@ function renderPluginsTable() {
         html += '<td><code>' + escapeHtml(p.filename) + '</code></td>';
         html += '<td><span class="badge bg-primary">' + escapeHtml(p.channel_name || p.filename) + '</span></td>';
         html += '<td><span class="badge bg-info">' + escapeHtml(p.channel_type || '-') + '</span></td>';
-        html += '<td>' + (p.source === 'builtin'
+        var srcBadge = (p.source === 'builtin'
             ? '<span class="badge bg-secondary">' + t("ch.source_builtin") + '</span>'
-            : '<span class="badge bg-success">' + t("ch.source_user") + '</span>') + '</td>';
+            : '<span class="badge bg-success">' + t("ch.source_user") + '</span>');
+        html += '<td>' + srcBadge + (p.shadow_builtin
+            ? ' <span class="badge bg-warning text-dark" title="用户版同名文件遮蔽了内置插件">'
+              + '⚠ ' + t("ch.shadow_builtin") + '</span>' : '') + '</td>';
         html += '<td>' + (p.channel_version ? escapeHtml(p.channel_version) : '<span class="text-muted">—</span>') + '</td>';
         html += '<td>';
         html += '<button class="btn btn-icon btn-outline-primary btn-sm" onclick="viewPluginCode(\'' + escapeAttr(p.filename) + '\')" title="' + escapeAttr(t("ch.view_code")) + '"><i class="bi bi-code-slash"></i></button> ';

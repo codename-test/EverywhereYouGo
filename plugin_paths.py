@@ -100,6 +100,13 @@ def is_builtin(kind, filename):
     return source_of(kind, filename) == "builtin"
 
 
+
+def shadows_builtin(kind, filename):
+    """用户目录存在该插件 且 内置目录也有同名文件 → 遮蔽（用户版生效，覆盖内置）。"""
+    user, builtin = _dirs(kind)
+    return (os.path.isfile(os.path.join(user, filename))
+            and os.path.isfile(os.path.join(builtin, filename)))
+
 def conflict_reason(kind, filename):
     """上传前的同名校验。
 
@@ -123,7 +130,8 @@ def conflict_reason(kind, filename):
 def list_plugins(kind):
     """列出两类目录中的插件（同名时用户版本优先），按文件名排序。
 
-    每项：{"filename", "name", "source", "path", "exists"}
+    每项：{"filename","name","source","path","exists","shadow_builtin"}；
+    shadow_builtin=True 表示该用户插件遮蔽了同名内置插件（用户版生效覆盖内置）。
     """
     user, builtin = _dirs(kind)
     out = {}
@@ -134,13 +142,15 @@ def list_plugins(kind):
             if not f.endswith(".py") or f.startswith("_") or f == "__init__.py":
                 continue
             # 用户目录后扫，自然覆盖同名的内置项（用户优先）
-            out[f] = {
+            item = {
                 "filename": f,
                 "name": f.replace(".py", ""),
                 "source": source,
                 "path": os.path.join(d, f),
                 "exists": os.path.isfile(os.path.join(d, f)),
             }
+            item["shadow_builtin"] = shadows_builtin(kind, f) if source == "user" else False
+            out[f] = item
     return [out[k] for k in sorted(out)]
 
 
