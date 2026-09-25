@@ -77,6 +77,28 @@ def load_plugin(filename: str):
     return mod
 
 
+def validate_channel(filepath: str) -> str:
+    """校验通道插件可加载（不加入缓存）。返回 "" 表示有效，否则返回错误信息。"""
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            source = f.read()
+    except OSError as e:
+        return f"无法读取: {e}"
+    try:
+        code = compile(source, filepath, "exec")
+    except SyntaxError as e:
+        return f"语法错误 (line {e.lineno}): {e.msg}"
+    ns = {}
+    ns["BaseChannel"] = BaseChannel
+    try:
+        exec(code, ns)
+    except Exception as e:
+        return f"执行错误: {type(e).__name__}: {e}"
+    if not callable(ns.get("Channel")):
+        return "插件必须定义 Channel 类"
+    return ""
+
+
 def reload_plugin(filename: str):
     with _channel_cache_lock:
         if filename in _channel_cache:

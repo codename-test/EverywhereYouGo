@@ -78,6 +78,27 @@ def load_parser(filename: str):
     return mod
 
 
+def validate_parser(filepath: str) -> str:
+    """校验解析器文件可加载（不加入缓存）。返回 "" 表示有效，否则返回错误信息。"""
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            source = f.read()
+    except OSError as e:
+        return f"无法读取: {e}"
+    try:
+        code = compile(source, filepath, "exec")
+    except SyntaxError as e:
+        return f"语法错误 (line {e.lineno}): {e.msg}"
+    ns = {}
+    try:
+        exec(code, ns)
+    except Exception as e:
+        return f"执行错误: {type(e).__name__}: {e}"
+    if not callable(ns.get("parse")):
+        return "插件必须定义 parse() 函数"
+    return ""
+
+
 def calc_parser_hash(filename: str) -> str:
     """解析器文件内容的 MD5 前 12 位。
 

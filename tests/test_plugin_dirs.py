@@ -128,6 +128,57 @@ class TestUploadAndEditPolicy:
         assert r.status_code == 200, r.data[:200]
         assert os.path.isfile(os.path.join(plugin_paths.user_dir("parser"), "mine.py"))
 
+    def test_bad_new_parser_not_created(self):
+        """新插件语法错误：400，且不创建文件。"""
+        r = self.client.post("/api/parsers", data={
+            "name": "bad",
+            "file": (io.BytesIO(b"def parse(b,h,q):\n    return {"), "badnew.py"),
+        }, content_type="multipart/form-data")
+        assert r.status_code == 400, r.data[:200]
+        assert "语法" in json.loads(r.data)["error"]
+        assert not os.path.isfile(os.path.join(plugin_paths.user_dir("parser"), "badnew.py"))
+
+    def test_bad_content_update_preserves_old(self):
+        """PUT 解析器内容语法错误：400，且旧内容保持不变（原子写）。"""
+        r = self.client.post("/api/parsers", data={
+            "name": "mine",
+            "file": (io.BytesIO(b"def parse(b,h,q): return {'title':'OLD'}\n"), "mine.py"),
+        }, content_type="multipart/form-data")
+        assert r.status_code == 200, r.data[:200]
+        pid = json.loads(r.data)["id"]
+        r = self.client.put(f"/api/parsers/{pid}/content",
+                            data=json.dumps({"content": "def parse(b,h,q):\n    return {"}),
+                            content_type="application/json")
+        assert r.status_code == 400, r.data[:200]
+        content = open(os.path.join(plugin_paths.user_dir("parser"), "mine.py"),
+                       "r", encoding="utf-8").read()
+        assert "OLD" in content, "旧内容应保持不变"
+
+    def test_bad_channel_content_update_preserves_old(self):
+        """通道 PUT 内容语法错误：400，且旧内容保持不变。"""
+        good = ("from channel_base import BaseChannel\n"
+                "class Channel(BaseChannel):\n"
+                "    CHANNEL_TYPE='badchan'\n"
+                "    def send(self,title,content):\n"
+                "        return (True,'OLD')\n"
+                "    def test(self):\n        return True\n")
+        r = self.client.post("/api/channel_plugins",
+                             data={"file": (io.BytesIO(good.encode()), "badchan.py")},
+                             content_type="multipart/form-data")
+        assert r.status_code == 200, r.data[:200]
+        bad = ("from channel_base import BaseChannel\n"
+               "class Channel(BaseChannel):\n"
+               "    CHANNEL_TYPE='badchan'\n"
+               "    def send(self,title,content):\n"
+               "        return (True,")
+        r = self.client.put("/api/channel_plugins/badchan.py",
+                            data=json.dumps({"content": bad}),
+                            content_type="application/json")
+        assert r.status_code == 400, r.data[:200]
+        content = open(os.path.join(plugin_paths.user_dir("channel"), "badchan.py"),
+                       "r", encoding="utf-8").read()
+        assert "OLD" in content
+
     def test_builtin_parser_is_readonly(self):
         pid = db.create_parser("Emby", "emby.py", "") or 1
         r = self.client.put(f"/api/parsers/{pid}/content",

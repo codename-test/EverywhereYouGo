@@ -65,12 +65,18 @@ def api_create_parser():
     if reason:
         return jsonify({"error": reason}), 400
 
-    plugin_paths.ensure_user_dirs()
-    f.save(os.path.join(plugin_paths.user_dir("parser"), filename))
+    # 同 filename 已存在则直接拒绝（避免覆盖已有用户解析器）
+    if any(p["filename"] == filename for p in db.get_parsers()):
+        return jsonify({"error": i18n._("err.parser_exists")}), 400
+
+    err = plugin_paths.atomic_upload("parser", filename, f)
+    if err:
+        return jsonify({"error": err}), 400
     pid = db.create_parser(name, filename, desc)
+
     if pid is None:
         return jsonify({"error": i18n._("err.parser_exists")}), 400
-    log.logger.info(f"Parser uploaded: {filename} (user dir)")
+    log.logger.info(f"Parser uploaded: {filename} (validated + atomic)")
     return jsonify({"id": pid})
 
 
@@ -118,12 +124,10 @@ def api_update_parser_content(pid):
     if "content" not in data:
         return jsonify({"error": i18n._("err.missing_content")}), 400
 
-    # 用户插件若文件缺失（例如升级后还没恢复），允许在这里重新写出来
-    plugin_paths.ensure_user_dirs()
-    fpath = plugin_paths.resolve("parser", p["filename"]) \
-        or os.path.join(plugin_paths.user_dir("parser"), p["filename"])
-    with open(fpath, "w", encoding="utf-8") as f:
-        f.write(data["content"])
+    # 原子写 + 验证：失败则旧内容保持不变，成功才替换
+    err = plugin_paths.atomic_write_string("parser", p["filename"], data["content"])
+    if err:
+        return jsonify({"error": err}), 400
     try:
         parser_loader.reload_parser(p["filename"])
         return jsonify({"status": "ok"})

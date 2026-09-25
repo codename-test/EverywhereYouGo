@@ -157,15 +157,16 @@ def api_create_channel_plugin():
     if reason:
         return jsonify({"error": reason}), 400
 
-    plugin_paths.ensure_user_dirs()
-    filepath = os.path.join(plugin_paths.user_dir("channel"), filename)
-    f.save(filepath)
+    err = plugin_paths.atomic_upload("channel", filename, f)
+    if err:
+        return jsonify({"error": err}), 400
     try:
         channel_loader.reload_plugin(filename)
+        log.logger.info(f"Channel plugin uploaded: {filename} (validated + atomic)")
+        return jsonify({"filename": filename})
     except Exception as e:
-        os.remove(filepath)
         return jsonify({"error": str(e)}), 400
-    return jsonify({"filename": filename})
+
 
 
 @channels_bp.route("/api/channel_plugins/<filename>", methods=["GET"])
@@ -188,11 +189,9 @@ def api_update_channel_plugin_content(filename):
     data = request.json or {}
     if "content" not in data:
         return jsonify({"error": i18n._("err.missing_content")}), 400
-    plugin_paths.ensure_user_dirs()
-    filepath = plugin_paths.resolve("channel", filename) \
-        or os.path.join(plugin_paths.user_dir("channel"), filename)
-    with open(filepath, "w", encoding="utf-8") as fh:
-        fh.write(data["content"])
+    err = plugin_paths.atomic_write_string("channel", filename, data["content"])
+    if err:
+        return jsonify({"error": err}), 400
     try:
         channel_loader.reload_plugin(filename)
         return jsonify({"status": "ok"})

@@ -22,6 +22,7 @@
 """
 
 import os
+import tempfile
 
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -164,3 +165,52 @@ def read_source_meta(path, prefix):
         "desc": grab(f"{prefix}_DESC"),
         "version": grab(f"{prefix}_VERSION"),
     }
+
+
+def _validate_plugin_impl(kind, filepath):
+    """校验插件文件（委托对应 loader，延迟导入避免循环导入）。"""
+    if kind == "parser":
+        import parser_loader
+        return parser_loader.validate_parser(filepath)
+    if kind == "channel":
+        import channel_loader
+        return channel_loader.validate_channel(filepath)
+    return "未知插件类型"
+
+
+def _atomic_replace(kind, filename, value, is_stream):
+    """原子替换用户目录插件文件：先写同目录临时文件并验证，
+    验证通过才 os.replace 到最终位置（同文件系统故原子）。
+    成功返回 None；失败返回错误信息串（旧文件保持不变）。"""
+    final_dir = user_dir(kind)
+    os.makedirs(final_dir, exist_ok=True)
+    final_path = os.path.join(final_dir, filename)
+    fd, tmp_path = tempfile.mkstemp(prefix=".tmp_", suffix=".py", dir=final_dir)
+    try:
+        content = value.read() if is_stream else value
+        if isinstance(content, bytes):
+            content = content.decode("utf-8")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        err = _validate_plugin_impl(kind, tmp_path)
+        if err:
+            raise ValueError(err)
+        os.replace(tmp_path, final_path)
+    except Exception as e:
+        try:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+        except OSError:
+            pass
+        return str(e)
+    return None
+
+
+def atomic_upload(kind, filename, stream):
+    """原子上传插件（stream 形式）。成功 None / 失败 错误串。"""
+    return _atomic_replace(kind, filename, stream, is_stream=True)
+
+
+def atomic_write_string(kind, filename, content):
+    """原子写入字符串内容。成功 None / 失败 错误串。"""
+    return _atomic_replace(kind, filename, content, is_stream=False)
