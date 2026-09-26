@@ -1,14 +1,17 @@
 {
-  "version": "1.3.0",
-  "release_date": "2026-07-28",
+  "version": "1.3.2",
+  "release_date": "2026-09-26",
   "url": "https://github.com/codename-test/EverywhereYouGo/releases/latest",
   "changelog": [
-    "通道熔断（#19）：三态机 + 滑动窗口 + 指数退避 30→600s + 4xx 不计失败 + 状态持久化",
-    "出站限流（#21）：每通道独立令牌桶，拿不到令牌延迟重排而非阻塞 worker",
-    "延迟重排：熔断/限流期间消息放回队列但不消耗重试次数，避免故障期耗尽重试跌入死信",
-    "入口并发：端口数据源单线程 HTTPServer → 固定线程池（慢请求不再阻塞其它请求）",
-    "性能：SQLite synchronous=NORMAL，单次 commit 6.98ms→0.02ms，吞吐 31→322 req/s",
-    "修复重试被推迟 8 小时：nack 用本地时间写 next_retry_at，与 SQLite UTC 基准不一致",
-    "韧性 API：GET /api/resilience、限流设置、熔断重置"
-  ]
+    "修复备份/恢复语义：恢复配置不再被启动加载逻辑吞掉（原先是 no-op）",
+    "恢复改为「部分恢复」：备份里没带的配置保持原样，不再被当成空配置清空",
+    "恢复校验前移到替换文件之前；预览（dry-run）执行与真实恢复相同的校验",
+    "上传体积上限：全局 32MB（EGO_MAX_UPLOAD_MB 可调），备份上传 20MB",
+    "同名解析器并发上传加锁，消除「磁盘与数据库不一致」竞态",
+    "插件可声明 EGO_MIN_VERSION（兼容性声明）；修复数据源监听启停长期失效的 bug"
+  ],
+  "upgrade_warning": {
+    "zh": "升级前请先备份：请先在「系统设置 → 备份」导出 ZIP，内含全部配置与你上传的插件（含完整推送凭据，请妥善保管）。升级后如遇异常，可随时用它恢复。",
+    "en": "Back up before upgrading: export a ZIP via Settings → Backup first. It contains all config and your uploaded plugins (including full push credentials — keep it safe), so you can restore at any time if something goes wrong after the upgrade."
+  }
 }

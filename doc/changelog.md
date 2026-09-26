@@ -4,6 +4,184 @@
 
 ---
 
+## v1.3.2（2026-09-26）
+
+> 本版是 v1.3.1 之后的**边界收口**：不新增大型架构，集中修可靠性、上传 / 恢复边界与文档。
+
+### 备份 / 恢复语义修正（本版最重要）
+
+- **恢复不再被"启动加载"语义吞掉**：`/api/restore` 原先调 `config_manager.load_all()`，
+  而后者在 DB 非空时以 DB 为准把 JSON 反向刷回 —— "恢复配置"实际是 **no-op**
+  （只有插件文件真恢复）。新增 `config_manager.import_from_json()` 做**事务性**「JSON → DB」，
+  restore 改调它。
+- **恢复改为"部分恢复"**：只把备份里**存在**的配置文件写入数据库，未包含的配置**保持原样**
+  （不再被当成"空配置"清空）。并且按 **ZIP 内容**（而非磁盘上有没有文件）决定允许覆盖哪些表 ——
+  后者会把上一轮导出残留的旧 `config/*.json` 误当成备份内容导入。
+  区分：文件被包含且为 `[]` → 清空该表；文件不在备份里 → 该表不动。
+- **清理孤儿绑定**：部分恢复后，指向已消失 source / channel / template 的绑定会被删除
+  （否则路由会持续匹配不存在的对象而反复失败）。
+- **`created_at` 保真**：导入时还原备份里的创建时间（缺失才回落当前时间）。
+- **最终提交做 best-effort 回滚**：替换前备份原文件，中途失败按逆序恢复。
+
+### 恢复 / 上传的校验与边界
+
+- **校验发生在"替换任何文件之前"**：抽出 `_stage_and_validate()`，做文件名安全、JSON 可解析、
+  **JSON 结构合法**（原先只在导入时 `log.warning`，形状错要等 `KeyError` 才炸 —— 那时插件文件
+  已替换完，会留"插件新版、配置没恢复"的半成品）、插件可加载。
+- **dry-run（「预览」）走同一套校验**，只是不落盘；回报 `errors` / `warnings` / `staged`。
+  前端在校验不通过时不再显示"确认恢复"按钮。
+- **上传体积上限**：全局 `MAX_CONTENT_LENGTH`（默认 32MB，`EGO_MAX_UPLOAD_MB` 可调）+ 413 JSON 响应；
+  备份上传另设 `MAX_BACKUP_UPLOAD_SIZE`（20MB，在 `file.read()` **之前**判断）。
+- **同名解析器并发上传**：新增 `plugin_paths.filename_lock()`，把「查重 → 落盘 → 入库」串行化
+  （原先是 TOCTOU：并发时可能出现"磁盘是 B 的内容、DB 是 A 的行"）。
+
+### 插件 metadata
+
+- 插件可声明 `PARSER_EGO_MIN_VERSION` / `CHANNEL_EGO_MIN_VERSION`（可选），
+  `read_source_meta` 读取并在解析器列表接口暴露 `ego_min_version`。
+  **注意**：目前仅为**兼容性声明**，加载器不会据此拒绝加载（暂不做依赖解析）。
+
+### 修掉的真 bug
+
+- **`main.py` 的 `web_ui.source_mgr = mgr` 是死代码**：API 侧读的是 `current_app.source_mgr`
+  （Flask app 的属性），而 `create_app(source_mgr=None)` 已把它定成 `None`。
+  后果：`/api/sources` 的增删改**从不启停监听**（新建带端口的数据源必须重启才生效），
+  restore 的监听重启也是空操作。已补 `web_ui.app.source_mgr = mgr`。
+
+### 文档
+
+- `architecture.md` 同步（真相源 = SQLite、flush/retry 共用 `_send_via_channel()`、
+  Blueprint / 通道 / 测试计数、日期）。
+- README 中英：备份章节补 `channels/*.py`、通道表补 SMTP、恢复语义说明、
+  **升级前请先备份**的提示。
+- 部署文档（`deploy/README.md` / `.en.md`）新增「升级与备份」章节：卷清单、升级命令、
+  以及 `down -v` 会连数据库与配置一起删除的警告。
+- `doc/sdk/{parser,channel}.{zh,en}.md` 新增「插件元数据」章节。
+
+---
+
+## v1.3.1（已发布）
+
+> 本版聚焦「插件持久化」：用户上传的插件在容器重建后不再丢失。
+
+### 插件目录拆分（破坏性变更，部署需同步改）
+
+内置插件与用户插件分目录：
+
+| 目录 | 内容 | 卷 |
+|------|------|----|
+| `parsers_builtin/` | 内置解析器（随镜像发布） | 无 |
+| `parsers/` | 用户上传的解析器 | `ego_parsers` |
+| `channels_builtin/` | 内置通道插件（随镜像发布） | 无 |
+| `channels/` | 用户上传的通道插件 | `ego_channels` |
+
+- **根因**：旧版本用户上传的插件与内置插件同目录，且该目录没有任何持久化 → 容器重建即丢。
+- **为什么不能只给原目录加卷**：named volume 首次创建会把镜像里该目录的内容拷进卷，
+  之后以卷为准 → 内置插件永远升不上去。所以必须分目录。
+- 新增 `plugin_paths.py` 作为唯一目录解析入口，收敛原先散在 **9 处**的硬编码路径
+  （`parser_loader` / `channel_loader` / `source_manager` / `parser_engine` / `api/*`）。
+- `BaseChannel` 从 `channels/__init__.py` 移到 `channel_base.py` ——
+  `channels/` 现在是用户卷，基础设施不能放在会被卷遮蔽的位置。
+- **同名规则**：与内置同名 → 上传直接拒绝（内置随镜像更新，同名文件不会生效）。
+- **内置只读**：WebUI 中可查看，不可编辑/删除（新增 `err.plugin_builtin_readonly` 文案）。
+- `Dockerfile` 的 `VOLUME` 与 **5 套** compose 配置同步新增两个用户插件卷。
+
+### 升级提示红字告警
+
+- `version.json` 新增 `upgrade_warning` 字段（`{zh, en}`），升级弹层**顶部**以红字告警块渲染。
+  1.3.1 的内容为：「**请先行备份所有配置**：本次升级包含插件目录拆分（破坏性变更）……」。
+- `version_checker` 透传该字段；前端按当前语言取文案，字段缺失时静默不显示（向后兼容）。
+
+### 备份 / 恢复
+
+- 备份改为打包**用户**的 `parsers/` 与 `channels/`（内置随镜像发布，打进备份反而会在
+  恢复时用旧副本遮蔽新版内置插件）。
+- 恢复写入用户目录，并**跳过与内置同名的条目**（响应里用 `skipped_builtin` 列出跳过了谁）。
+- 顺带修掉一个漏项：**备份原先完全不含 `channels/`**，用户上传的通道插件从来没被备份过。
+
+### 其它
+
+- `_calc_parser_hash` 原先在两个文件里各写一份、各自拼 `parsers/` 路径，
+  收敛到 `parser_loader.calc_parser_hash()`（走 plugin_paths，内置/用户都能定位）。
+- 删除 `api/sources.py` 中从未被使用的死常量 `PARSERS_DIR`。
+- `list_plugins()` 增加 `source` 标注（`builtin` / `user`），供前端区分来源。
+
+### 新增通道：SMTP 邮件
+
+- 🆕 `channels_builtin/smtp_email.py`。字段：服务器 / 端口 / 登录账号 /
+  **密码（标签写作「密码 / 授权码」）** / 发件人 / 收件人 / 抄送 / 加密方式。
+- ⚠️ **国内邮箱要的是授权码，不是登录密码** —— 这一点做了三处体现，缺一不可：
+  1. 字段标签写「密码 / 授权码」，不写「密码」
+  2. desc 说明要先去邮箱设置开启 SMTP 服务并生成授权码（Gmail 叫「应用专用密码」）
+  3. **认证失败（535 等）的错误信息直接把用户引向授权码**，而不是让人反复试密码
+- 加密方式按端口推断（`encryption=auto`）：**25→明文、587→STARTTLS、465/994→隐式 TLS**，
+  可用 `encryption` 显式覆盖为 `ssl` / `starttls` / `none`。
+  依据：IANA 注册 25=`smtp`(RFC5321)、587=`submission`(RFC4409, STARTTLS)、
+  465=`submissions`(RFC8314, 隐式 TLS)；**994 无 IANA 注册**，是网易自定的 SMTP SSL 端口。
+- 正文同时生成纯文本与 HTML（HTML 由 markdown 渲染），发件人留空则用登录账号（多数邮箱
+  要求二者一致）。
+- `test()` 改为可返回 `(ok, error)`，`channel_loader.test_channel()` 与
+  `/api/channels/<id>/test` 都会把真实原因带给用户（原先只会显示一句"测试失败"）。
+
+### 新增解析器：通用 JSON / 表单 / 文本
+
+三个**内置**通用解析器，覆盖"不想为每种来源写解析器"的场景：
+
+| 文件 | 能力 |
+|------|------|
+| `generic_json.py` | 任意 JSON，嵌套字段展平为**点号路径**（`item.name`）；数组元素全为标量时合成字符串 |
+| `generic_form.py` | `x-www-form-urlencoded` 与 `multipart/form-data`；文件字段给 `.filename` / `.size`，不读内容 |
+| `generic_text.py` | 纯文本：首行作标题，正文进 `content`，`KEY=VALUE` / `KEY: VALUE` 行提取为变量 |
+
+设计取舍：
+- **字段一律是标量**（数组合成字符串、同名字段合并）—— 因为路由条件只认标量，
+  留成列表会让条件取不到值。
+- **键统一小写**，与既有解析器（`emby.py` 产出 `event`/`name`）保持一致。
+- 数值保留原类型（`size` 仍是 int），便于条件做数值比较。
+- 有上限（JSON 深度 6 / 字段 300 / 值 2000 字符），防畸形 payload 拖垮渲染。
+
+配套：`db.sync_builtin_parsers()` 在启动时把内置解析器**幂等登记**进 `parsers` 表 ——
+否则新版本带来的内置解析器在 WebUI 里选不到。名字取源码里的 `PARSER_NAME`。
+
+### 韧性链路收口
+
+- 🔴 **统一发送入口**：worker（异步入队）与 flush/retry（直接发送）原先各走各的 ——
+  `_do_send_direct` **既不判熔断、不记录熔断结果、也不限流**，等于整层韧性保护对
+  flush / retry 失效。现抽出 `_send_via_channel()` 两条路径共用。
+  被拦下的通道不计失败、不改写消息终态，留给后续重试。
+- **HALF_OPEN 只放一个探测**：原先 HALF_OPEN 期间对所有请求放行，一次恢复可能瞬间
+  给刚出问题的第三方打出一批请求。现在用闸门限制为单探测，探测返回即释放。
+- **defer 超限语义修正**：超过 `max_defers` 时**直接进死信**并写明
+  "deferred N times without ever being sent"，**不消耗重试次数** ——
+  原先走 `nack()`，把"一直没轮到发"伪装成"发送失败"，排查时会被误导。
+- **ingress 停机排空**：`_IngressPool.shutdown()` 现在会等在途请求收尾（超时如实报告），
+  原先只置停止标志就返回，在途请求被直接掐断。
+
+### 插件元信息与缺失状态
+
+- 插件可声明 `PARSER_VERSION` / `CHANNEL_VERSION`（内置插件均已补 1.0；`emby.py` 为 1.1），
+  解析器还会读 `PARSER_NAME` / `PARSER_DESC`（正则读取，不执行代码）。
+- 列表接口新增 `source`（`builtin` / `user` / `missing`）与 `version`；
+  设置页插件表新增「来源」「版本」两列。
+- **插件缺失状态**：通道实例引用的插件文件若已不存在，`/api/channels` 返回
+  `plugin_missing: true`，通道列表显示红色「插件缺失」标记；加载失败的错误信息也改为可行动
+  （提示插件可能已被删除、需重新上传或换类型）。
+
+### 测试
+
+- `tests/test_plugin_dirs.py`：解析顺序、路径穿越、同名拒绝、内置只读、
+  备份含用户插件且不含内置、恢复跳过同名内置、**升级保留**、**升级兼容性**、元信息与缺失状态
+- `tests/test_smtp_email_channel.py`（16 例）：加密推断、地址分隔符解析、校验、
+  MIME 构造，以及**对着 SMTP 桩服务器真发一封**（含认证失败要提示授权码）
+- `tests/test_generic_parsers.py`（26 例）：三个解析器的展平/编码/截断/类型保真
+- 另有统一发送入口、HALF_OPEN 单探测、ingress 排空等用例
+- 213 → **296 passed**
+
+> 版本号暂未 bump：v1.3.1 还包含「SMTP 邮件通道」与「Generic JSON / Form / Text 解析器」，
+> 待一并完成后再发版。
+
+---
+
 ## v1.3.0（2026-07-28）
 
 > 主题：**工程收口** —— 从「功能实现」转向「异常情况下是否可靠」。

@@ -31,11 +31,13 @@
                     <th>{{ _("ch.plugin_filename") }}</th>
                     <th>{{ _("ch.plugin_channel_name") }}</th>
                     <th>{{ _("ch.plugin_channel_type") }}</th>
+                    <th>{{ _("ch.plugin_source") }}</th>
+                    <th>{{ _("ch.plugin_version") }}</th>
                     <th>{{ _("ch.col_actions") }}</th>
                 </tr>
             </thead>
             <tbody id="pluginsTable">
-                <tr><td colspan="4" class="text-center text-muted">{{ _("common.loading") }}</td></tr>
+                <tr><td colspan="6" class="text-center text-muted">{{ _("common.loading") }}</td></tr>
             </tbody>
         </table>
     </div>
@@ -72,6 +74,9 @@
                     <td>{{ ch.name }}</td>
                     <td>
                         <span class="badge bg-secondary" id="ch-type-{{ ch.id }}">{{ ch.type }}</span>
+                        {% if ch.plugin_shadowed %}
+                        <span class="badge bg-warning text-dark" title="用户版同名插件遮蔽了内置插件">{{ _("ch.shadow_builtin") }}</span>
+                        {% endif %}
                     </td>
                     <td>
                         {% if ch.enabled %}
@@ -82,7 +87,7 @@
                     </td>
                     <td id="res-cell-{{ ch.id }}"><span class="text-muted">—</span></td>
                     <td>
-                        <button class="btn btn-icon btn-outline-primary btn-sm" onclick="testChannel({{ ch.id }})" title="{{ _("common.test") }}"><i class="bi bi-send"></i></button>
+                        <button class="btn btn-icon btn-outline-primary btn-sm" onclick="testChannel({{ ch.id }})" title="{% if ch.type == 'smtp_email' %}{{ _('ch.test_conn') }}{% else %}{{ _('ch.test_send') }}{% endif %}"><i class="bi bi-send"></i></button>
                         <button class="btn btn-icon btn-outline-primary btn-sm" onclick="openEditChannel({{ ch.id }})" title="{{ _("common.edit") }}"><i class="bi bi-pencil"></i></button>
                         <button class="btn btn-icon btn-outline-success btn-sm" onclick="duplicateChannel({{ ch.id }})" title="{{ _("common.copy") }}"><i class="bi bi-files"></i></button>
                         <button class="btn btn-icon btn-outline-info btn-sm" onclick="exportItem('channel',{{ ch.id }})" title="{{ _("common.export") }}"><i class="bi bi-download"></i></button>
@@ -244,14 +249,14 @@ function loadPlugins() {
     })
     .catch(function(err) {
         document.getElementById('pluginsTable').innerHTML =
-            '<tr><td colspan="4" class="text-center text-danger">' + t("ch.load_fail") + ': ' + err + '</td></tr>';
+            '<tr><td colspan="6" class="text-center text-danger">' + t("ch.load_fail") + ': ' + err + '</td></tr>';
     });
 }
 
 function renderPluginsTable() {
     var tbody = document.getElementById('pluginsTable');
     if (!pluginsList.length) {
-        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">' + t("ch.no_plugins") + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">' + t("ch.no_plugins") + '</td></tr>';
         return;
     }
     var html = '';
@@ -261,6 +266,13 @@ function renderPluginsTable() {
         html += '<td><code>' + escapeHtml(p.filename) + '</code></td>';
         html += '<td><span class="badge bg-primary">' + escapeHtml(p.channel_name || p.filename) + '</span></td>';
         html += '<td><span class="badge bg-info">' + escapeHtml(p.channel_type || '-') + '</span></td>';
+        var srcBadge = (p.source === 'builtin'
+            ? '<span class="badge bg-secondary">' + t("ch.source_builtin") + '</span>'
+            : '<span class="badge bg-success">' + t("ch.source_user") + '</span>');
+        html += '<td>' + srcBadge + (p.shadow_builtin
+            ? ' <span class="badge bg-warning text-dark" title="用户版同名文件遮蔽了内置插件">'
+              + '⚠ ' + t("ch.shadow_builtin") + '</span>' : '') + '</td>';
+        html += '<td>' + (p.channel_version ? escapeHtml(p.channel_version) : '<span class="text-muted">—</span>') + '</td>';
         html += '<td>';
         html += '<button class="btn btn-icon btn-outline-primary btn-sm" onclick="viewPluginCode(\'' + escapeAttr(p.filename) + '\')" title="' + escapeAttr(t("ch.view_code")) + '"><i class="bi bi-code-slash"></i></button> ';
         html += '<button class="btn btn-icon btn-outline-danger btn-sm" onclick="deletePlugin(\'' + escapeAttr(p.filename) + '\')" title="' + escapeAttr(t("common.delete")) + '"><i class="bi bi-trash"></i></button>';
@@ -678,6 +690,10 @@ function renderResilience() {
         if (!cell) return;
 
         var parts = [];
+        if (ch.plugin_missing) {
+            parts.push('<span class="badge bg-danger me-1" title="' + t("ch.plugin_missing_title") + '">'
+                       + '<i class="bi bi-plug"></i> ' + t("ch.plugin_missing") + '</span>');
+        }
         var b = openMap[ch.id];
         if (b) {
             var label = b.state === 'open' ? t("ch.breaker_open") : t("ch.breaker_probing");

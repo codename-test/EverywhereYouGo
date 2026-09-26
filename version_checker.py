@@ -22,6 +22,7 @@ _cache = {
     "latest_version": None,   # 最新版本号
     "release_date": None,     # 发布日期
     "changelog": [],          # 更新内容列表
+    "upgrade_warning": None,  # 升级前必读的红字告警（可选，{zh,en} 或字符串）
     "url": None,              # 发布页链接
     "has_update": False,      # 是否有新版本
     "checked_at": None,       # 上次检查时间
@@ -63,6 +64,7 @@ def check_now():
             _cache["latest_version"] = remote_ver
             _cache["release_date"] = data.get("release_date", "")
             _cache["changelog"] = data.get("changelog", [])
+            _cache["upgrade_warning"] = data.get("upgrade_warning")
             _cache["url"] = data.get("url", "")
             _cache["has_update"] = has_update
             _cache["checked_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -97,6 +99,7 @@ def _cache_to_dict():
             "latest_version": _cache["latest_version"],
             "release_date": _cache["release_date"],
             "changelog": _cache["changelog"],
+            "upgrade_warning": _cache["upgrade_warning"],
             "url": _cache["url"],
             "has_update": _cache["has_update"],
             "checked_at": _cache["checked_at"],

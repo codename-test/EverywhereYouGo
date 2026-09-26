@@ -103,6 +103,24 @@ Key points:
 - Use `.get(key, default)` at every level to avoid `KeyError`
 - Emit extra fields like `event` and `item_type` so route conditions can split traffic precisely
 
+## Plugin Metadata (optional)
+
+Declare the following module-level constants. EGo reads them with a **regex**
+(without executing your code) for display in the WebUI:
+
+```python
+PARSER_NAME = "My Parser"           # display name (falls back to filename)
+PARSER_DESC = "Parses XXX payload"  # description
+PARSER_VERSION = "1.0"              # version
+PARSER_EGO_MIN_VERSION = "1.3"      # minimum required EGo version (optional)
+```
+
+> **Note**: `PARSER_EGO_MIN_VERSION` is currently a **compatibility declaration**,
+> not an enforcement mechanism. EGo reads it and returns it through the parser list
+> API (`ego_min_version`), but does **not** refuse to load a plugin based on it
+> (no dependency/version resolution yet). It simply lets you state "this plugin
+> needs at least EGo x.y" so users can judge compatibility themselves.
+
 ## Debugging & Testing
 
 1. When a source receives a message, the raw request is recorded as **sample data**

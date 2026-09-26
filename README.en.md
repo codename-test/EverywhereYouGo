@@ -1,4 +1,4 @@
-# EverywhereYouGo (EGo) v1.3.0
+# EverywhereYouGo (EGo) v1.3.2
 
 [中文](README.md) | English
 
@@ -35,7 +35,7 @@ HTTP POST → Data Source → Parser → Route Match → Template Render → Pus
 | **Parser** | Python script, extracts fields and defines variable names |
 | **Route** | Condition expression matches channel-template pairs |
 | **Template** | Simple / Jinja2 renders title and content |
-| **Channel** | WeChat Work, DingTalk, Feishu, Telegram, Bark |
+| **Channel** | WeChat Work, DingTalk, Feishu, Telegram, Bark, Email (SMTP) |
 
 ## Authentication
 
@@ -80,7 +80,75 @@ Hand-editing `config/*.json` is only read on first import when the database is e
 it is not the normal path for applying changes.
 
 System settings (DND, log level, etc.), the message log and the queue are also stored in SQLite.
-For backup/restore use **Settings → Backup**, which packages `config/*.json` + `parsers/*.py`.
+For backup/restore use **Settings → Backup**, which packages `config/*.json` plus **your uploaded**
+`parsers/*.py` and `channels/*.py`.
+
+**Restore is not the same path as startup loading**: on restore, config from the backup is
+written to the database (`config/*.json` → SQLite), then plugins are reloaded and every
+data-source listener is restarted.
+
+**Restore is a partial restore**: only config files *present* in the backup are written to the
+database; anything not included is **left unchanged** (not wiped), and a notice listing the missing
+files is returned. A hand-made or truncated ZIP therefore cannot destroy data it never contained.
+To restore a table to empty, ship a file containing `[]` rather than omitting it
+(**file present and `[]` → table cleared; file absent → table untouched**).
+
+> ⚠️ **Back up before upgrading**: export a ZIP via *Settings → Backup* before any version/image
+> upgrade. Backup files contain **full push credentials** (SMTP password / auth code / tokens) —
+> keep them safe.
+
+## Plugin Directories
+
+Built-in plugins and user-uploaded plugins live in **separate directories**:
+
+| Directory | Content | Docker |
+|-----------|---------|--------|
+| `parsers_builtin/` | Built-in parsers | Shipped in the image, **no volume** |
+| `parsers/` | Your uploaded parsers | `ego_parsers` volume — survives container recreation |
+| `channels_builtin/` | Built-in channel plugins | Shipped in the image, **no volume** |
+| `channels/` | Your uploaded channel plugins | `ego_channels` volume — survives container recreation |
+
+Rules:
+
+- **Resolution order: user directory first**, then built-in
+- **Uploading a name that collides with a built-in is rejected** (with a clear error) —
+  built-ins are updated with the image, so a same-named file would never take effect
+- **Built-in plugins are read-only**: viewable in the WebUI, but not editable or deletable
+- To actually change a built-in's behaviour, put your version under a **different filename**
+  in the user directory, or edit the source and rebuild the image
+
+> **Why the split is required**: mounting a volume over the directory that holds the built-ins
+> makes Docker copy the image's contents into the volume on first creation, and the volume
+> becomes authoritative from then on — image upgrades would never reach the built-ins.
+> With one shared directory there is no way out: you either lose user files, or the built-ins
+> can never be upgraded.
+
+**Upgrading from v1.3.0 to v1.3.1+**
+Older versions wrote user-uploaded plugins directly into the **built-in** directory,
+which is **not persisted** — recreating the container would lose them. Before
+upgrading to v1.3.1+, **back up your user plugins first**:
+
+1. **Export** (pick one):
+   - Export a ZIP via the old container's *Settings → Backup* (if the old version supports it);
+   - Or `docker cp` the plugin directory from the old container (in the old version,
+     user plugins share one unvolume-mounted directory with the built-ins — the exact
+     path depends on your old deployment):
+     ```bash
+     docker cp <ego-container>:/app/parsers_builtin  /tmp/old-parsers
+     docker cp <ego-container>:/app/channels_builtin /tmp/old-channels
+     ```
+2. **Upgrade the image**: from v1.3.1+ onward, user plugins live in the **user**
+   directory backed by named volumes (`ego_parsers`/`ego_channels`). A regular image
+   upgrade (pull the new image, recreate the container) **does not require re-uploading
+   plugins** — they survive via the volumes.
+3. **Restore** (only when migrating from the old version): restore writes into the
+   new user directory and automatically skips entries that collide with built-ins
+   (to prevent stale copies from shadowing the new built-in plugins).
+
+> **Volume operation semantics** (`ego_parsers` / `ego_channels`):
+> - `docker compose up` (or recreating the container) → volume is kept, plugins survive
+> - `docker compose down` → named volumes are kept by default, plugins survive
+> - `docker compose down -v` → **volumes are deleted, all user plugins are lost** — confirm first
 
 ## Parsers
 
@@ -135,9 +203,14 @@ By default **only the channels that failed are retried** — already-succeeded c
 not pushed a second time. Use `scope=all` to force a full re-push.
 
 ### Import & Export
-- **Backup**: Download ZIP package (`config/*.json` + `parsers/*.py`)
-- **Restore**: Upload ZIP package, automatically takes effect after overwriting configuration
+- **Backup**: Download ZIP package (`config/*.json` + `parsers/*.py` + `channels/*.py`)
+- **Restore**: Upload ZIP package; config from the backup is written to the database (JSON → DB), plugin files are restored and hot-reloaded. Config not included in the backup is left unchanged, with a notice listing the missing files
+- **Preview**: runs the **same** validation as a real restore (size / completeness / JSON shape / plugin loadability); the "confirm restore" button only appears when it passes
 - **JSON Import**: Supports dry_run preview, insert/overwrite two modes, dependency check
+
+> **Security note**
+> - The backup ZIP contains **full push credentials** (SMTP password / auth code / token, etc.) — keep it secure and never share it.
+> - JSON export masks sensitive fields (`password` / `token` / `secret` / `webhook` / `device_key`, etc.) as `***` for display and archiving only. Full credentials are preserved only in the backup ZIP and restored from it.
 
 ### Channel Circuit Breaker
 Automatically isolates a channel that keeps failing, so one broken third party cannot
@@ -156,6 +229,12 @@ drag down the whole send path:
 Per-channel rate limit (messages per minute) to avoid getting blocked by the remote side.
 Retries cannot fix a 429 — limiting has to happen **before** sending. A message that
 cannot get a token waits in the queue instead of being dropped.
+
+**Token bucket**: each channel has an independent token bucket whose capacity (burst)
+equals the configured per-minute quota; it refills at `quota ÷ 60` tokens per second.
+Sending one message takes 1 token; when the bucket is empty the message is queued —
+not dropped — until a token is available (up to `EGO_RATE_MAX_WAIT` seconds, after which
+it is deferred instead).
 
 ### Resilience UI
 | Where | What you can do |
@@ -194,6 +273,7 @@ Built-in Chinese and English bilingual support, switch languages anytime via lan
 | Feishu | Webhook | `feishu` |
 | Telegram | Bot API | `telegram_bot` |
 | Bark | API | `bark` |
+| Email (SMTP) | SMTP | `smtp_email` |
 
 ## Environment Variables
 

@@ -38,6 +38,42 @@ Webhook receivers (`/in/...`) and health checks (`/api/health`) are machine-to-m
 - `EGO_SSL_ENABLED` (default 1): set to `0` to **fully disable** built-in HTTPS — skips cert generation, HTTP only, no redirect, session cookies without `Secure`. Only use this if you want pure HTTP or TLS is terminated upstream and you don't want double encryption.
 - `HTTP_PORT` / `HTTPS_PORT` (T3/T4 only, default 80/443): host ports for nginx. Override via `.env` (the one-click script guides you and detects conflicts).
 
+## Upgrade & Backup
+
+**Back up before upgrading.** Open the admin UI → *Settings → Backup* → *Download Backup* to get
+`ego_backup_*.zip`. It contains `config/*.json` plus your uploaded `parsers/*.py` and
+`channels/*.py`, **including full push credentials** (SMTP password / auth code / tokens) —
+keep it safe and do not share it.
+
+```bash
+docker compose pull && docker compose up -d     # pull the new image, recreate the container
+```
+
+User plugins live on named volumes (`ego_parsers` / `ego_channels`), so a regular upgrade
+**does not require re-uploading plugins**.
+
+### Volumes & Data
+
+| Volume | Content |
+|--------|---------|
+| `ego_data` | SQLite database (runtime source of truth for config + message log / queue) |
+| `ego_config` | `config/*.json` (export / backup medium) |
+| `ego_parsers` | Your uploaded parsers |
+| `ego_channels` | Your uploaded channel plugins |
+| `ego_certs` | Self-signed certificate (no browser warning again after container recreation) |
+
+| Operation | Volumes |
+|-----------|---------|
+| `docker compose up -d` (incl. container recreation) | kept |
+| `docker compose down` | kept (named volumes are not removed by default) |
+| `docker compose down -v` | **all deleted** (database and config included) — back up first |
+
+> **Upgrading from v1.3.0 to v1.3.1+ is a breaking change**: older versions wrote user plugins into
+> the **unvolume-mounted** built-in directory, so recreating the container lost them. Migration steps
+> (including "export before upgrading") are in the main README's *Upgrading from v1.3.0* section.
+
+---
+
 ## Usage
 
 ### Default / T1 / T2 (Self-Signed HTTPS)

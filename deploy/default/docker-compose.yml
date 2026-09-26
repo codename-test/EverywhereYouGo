@@ -16,6 +16,8 @@ services:
     volumes:
       - ego_data:/app/data
       - ego_config:/app/config
+      - ego_parsers:/app/parsers     # 用户上传的解析器（内置在 parsers_builtin/，随镜像更新）
+      - ego_channels:/app/channels   # 用户上传的通道插件（内置在 channels_builtin/）
       - ego_certs:/app/certs       # 持久化自签名证书，重建容器后浏览器无需再次放行
     ports:
       - "5000:5000"
@@ -26,3 +28,5 @@ volumes:
   ego_data:
   ego_config:
   ego_certs:
+  ego_parsers:
+  ego_channels:

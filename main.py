@@ -31,7 +31,7 @@ import version_checker  # 版本检查
 import worker           # 异步发送 worker
 from web_ui import run_web_ui, has_ssl, ssl_enabled_by_env, app as web_app
 
-VERSION = "1.3.0"
+VERSION = "1.3.2"
 AUTHOR = "codename-test"
 DESCRIPTION = "EverywhereYouGo (EGo) — 通用信息转发平台"
 
@@ -91,6 +91,12 @@ def init_ego():
     log.logger.info("Initializing database...")
     db.init_db()
 
+    # 1.05 确保用户插件目录存在
+    # （parsers/ 与 channels/ 是用户目录，裸机运行时不在版本库里；
+    #  内置插件在 parsers_builtin/ 与 channels_builtin/，随镜像发布）
+    import plugin_paths
+    plugin_paths.ensure_user_dirs()
+
     # 1.1 挂载数据库日志处理器（处理器由 db/ 提供，log 模块不反向依赖 db）
     from db.log_handler import make_log_handler
     log.setup_db_logging(make_log_handler())
@@ -98,6 +104,15 @@ def init_ego():
     # 1.5 加载配置（JSON → SQLite）
     import config_manager
     config_manager.load_all()
+
+    # 1.55 把内置解析器登记进 parsers 表（幂等）
+    # 内置解析器随镜像新增，但 parsers 表只认数据库记录 —— 不登记就选不到
+    try:
+        added = db.sync_builtin_parsers()
+        if added:
+            log.logger.info(f"Registered built-in parser(s): {added}")
+    except Exception as e:
+        log.logger.error(f"sync_builtin_parsers failed: {e}")
 
     # 1.6 注册路径路由（需要在 DB 初始化后读取前缀配置）
     import path_router
@@ -126,6 +141,12 @@ def init_ego():
     # 注入 source_mgr 到 web_ui（供 API 调用）
     import web_ui
     web_ui.source_mgr = mgr
+    # API 侧读的是 `current_app.source_mgr`（Flask app 的属性），
+    # 而 web_ui.py 里 `app = create_app(source_mgr=None)` 已把 app.source_mgr
+    # 定成 None —— 只设模块级 `web_ui.source_mgr` 是**取不到的**。
+    # 结果：/api/sources 的增删改启停监听、restore 的监听重启长期是空操作
+    # （静默失效，只在"新建带端口数据源后必须重启才生效"这类现象里露头）。
+    web_ui.app.source_mgr = mgr
 
     # 5. 启动 DND 队列检查线程
     dnd_thread = threading.Thread(

@@ -116,35 +116,134 @@ def export_all():
 #  Import — JSON → SQLite（启动时加载）
 # ═══════════════════════════════════════════════
 
-def _import_table(json_name: str, load_func, clear_func):
-    """从 JSON 文件加载到 SQLite 表。"""
-    data = _read_json(json_name)
-    if not data:
-        return False
-    clear_func()
-    for row in data:
-        row = {k: v for k, v in row.items() if not k.startswith("_")}
-        load_func(**row)
-    return True
+# 导入规格：(schema_key, SQL 表名, JSON 文件名, INSERT 语句, 行 → 参数)
+# schema_key 同时是 `_SCHEMA` 与 `_CONFIG_FILES` 的键。
+# `created_at` 一并还原（备份里带则用备份值，缺失回落 CURRENT_TIMESTAMP）——
+# 否则恢复一次备份，所有"创建时间"都会变成恢复时刻。
+# （source_channels 表无 created_at 列，不涉及。）
+_IMPORT_SPECS = (
+    ("parsers", "parsers", "parsers.json",
+     "INSERT INTO parsers (id, name, filename, description, created_at) "
+     "VALUES (?,?,?,?, COALESCE(?, CURRENT_TIMESTAMP))",
+     lambda r: (r["id"], r["name"], r["filename"], r.get("description", ""),
+                r.get("created_at") or None)),
+
+    ("channels", "channels", "channels.json",
+     "INSERT INTO channels (id, name, type, config, enabled, created_at) "
+     "VALUES (?,?,?,?,?, COALESCE(?, CURRENT_TIMESTAMP))",
+     lambda r: (r["id"], r["name"], r["type"], r.get("config", "{}"),
+                r.get("enabled", 1), r.get("created_at") or None)),
+
+    ("templates", "templates", "templates.json",
+     "INSERT INTO templates (id, name, engine, title_tpl, content_tpl, created_at) "
+     "VALUES (?,?,?,?,?, COALESCE(?, CURRENT_TIMESTAMP))",
+     lambda r: (r["id"], r["name"], r.get("engine", "jinja2"),
+                r.get("title_tpl", ""), r.get("content_tpl", ""),
+                r.get("created_at") or None)),
+
+    ("sources", "sources", "sources.json",
+     """INSERT INTO sources (id, name, slug, port, path, parent_id, parser_id, enabled, created_at)
+        VALUES (?,?,?,?,?,?,?,?, COALESCE(?, CURRENT_TIMESTAMP))""",
+     lambda r: (r["id"], r["name"], r.get("slug"), r.get("port"),
+                r.get("path", ""), r.get("parent_id"), r.get("parser_id"),
+                r.get("enabled", 1), r.get("created_at") or None)),
+
+    ("bindings", "source_channels", "bindings.json",
+     """INSERT INTO source_channels
+        (id, source_id, channel_id, template_id, condition_expr,
+         dedup_key_expr, dedup_window, priority, enabled, urgent)
+        VALUES (?,?,?,?,?,?,?,?,?,?)""",
+     lambda r: (r["id"], r["source_id"], r["channel_id"], r["template_id"],
+                r.get("condition_expr", ""), r.get("dedup_key_expr", ""),
+                r.get("dedup_window", 3600), r.get("priority", 0),
+                r.get("enabled", 1), r.get("urgent", 0))),
+)
+
+
+def import_from_json(only=None):
+    """从 JSON 文件导入 SQLite（支持部分恢复）。
+
+    对每个要处理的 JSON：清空对应表 → 按 JSON 重建（保留 id / created_at）；
+    跳过的表**原样保留**（不清空）。这样"缺文件的备份"是部分恢复，
+    而不是把没带上的表静默清空。
+
+    only: 只处理这些 schema_key（`parsers` / `sources` / `channels` /
+    `templates` / `bindings`）。**备份恢复必须传它**——因为 config/ 目录里通常
+    已经存在上一轮导出留下的旧文件，"按磁盘上有没有判断"会把陈旧内容当成
+    备份内容导入。None = 按磁盘上是否存在决定（仅用于 load_all 的首次导入）。
+
+    注意区分：
+      - 要处理且文件存在、内容是 `[]` → 该表被**清空**（显式表达"我就要空表"）
+      - 不处理 / 文件不存在          → 该表**原样保留**
+
+    事务性：所有 DELETE / INSERT 在**单个事务**内完成，失败整体回滚，
+    不会留下「表已清空但未导入」的半成品。
+
+    返回 (counts, skipped)：counts = schema_key → 导入行数；
+    skipped = 未处理（故原样保留）的 schema_key 列表。
+    """
+    import db
+    db.init_db()
+    conn = db._conn()
+
+    counts = {}
+    skipped = []
+    try:
+        for key, table, json_name, insert_sql, to_params in _IMPORT_SPECS:
+            if only is not None and key not in only:
+                skipped.append(key)
+                log.logger.info("Config import: %s not in backup, table %s left unchanged",
+                                json_name, table)
+                continue
+            data = _read_json(json_name)
+            if data is None:
+                # 备份里没有这个文件 → 该表不动（不删不建）
+                skipped.append(key)
+                log.logger.info("Config import: %s absent, table %s left unchanged",
+                                json_name, table)
+                continue
+            errors = _validate_config(key, data)
+            if errors:
+                log.logger.warning(f"Config validation errors: {'; '.join(errors[:5])}")
+            conn.execute("DELETE FROM %s" % table)
+            for row in data:
+                conn.execute(insert_sql, to_params(row))
+            counts[key] = len(data)
+
+        # 部分恢复时，绑定可能指向已被替换掉的 source / channel / template
+        # → 清掉孤儿绑定（否则路由会持续匹配到不存在的对象而反复失败，
+        #    与 db.delete_channel 里的级联清理同因）
+        conn.execute("""DELETE FROM source_channels
+                        WHERE source_id   NOT IN (SELECT id FROM sources)
+                           OR channel_id  NOT IN (SELECT id FROM channels)
+                           OR template_id NOT IN (SELECT id FROM templates)""")
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        log.logger.error("Config import from JSON failed, rolled back (DB unchanged)")
+        raise
+
+    _mark_synced()
+    log.logger.info("Config imported from JSON files: %s%s", counts,
+                    (" (left unchanged: %s)" % skipped) if skipped else "")
+    return counts, skipped
 
 
 def load_all():
     """启动时加载配置。数据库为准，JSON 仅做导出备份。
 
     - 数据库已有配置数据 → 以数据库为准，刷新 JSON 备份后返回
-    - 数据库为空且存在 JSON 配置 → 从 JSON 导入（首次迁移/恢复）
+    - 数据库为空且存在 JSON 配置 → 从 JSON 导入（首次迁移）
     - 数据库为空且无 JSON 配置 → 从数据库导出初始 JSON
+
+    注意：**备份恢复（Restore）不走这里**，而是直接调 import_from_json()。
+    恢复要求「JSON → DB」的无条件覆盖；而 load_all() 在 DB 非空时以 DB 为准、
+    会把 JSON 反向刷回，从而覆盖掉刚恢复的配置（v1.3.2 review #8）。
     """
     import db
     # 确保表已创建（跨线程可见）
     db.init_db()
-    from db import (
-        create_parser, delete_parser,
-        create_source, delete_source,
-        create_channel, delete_channel,
-        create_template, delete_template,
-        create_source_channel, delete_source_channel,
-    )
 
     conn = db._conn()
 
@@ -170,69 +269,9 @@ def load_all():
         export_all()
         return
 
-    # 数据库为空 + 有 JSON：从 JSON 导入（首次迁移/恢复）
+    # 数据库为空 + 有 JSON：从 JSON 导入（首次迁移）
     log.logger.info("Empty database, loading config from JSON files...")
-
-    # 按依赖顺序清空 + 重新导入（保留 id）
-    # 1. parsers
-    conn.executescript("DELETE FROM source_channels; DELETE FROM sources; DELETE FROM templates; DELETE FROM channels; DELETE FROM parsers;")
-    parsers_data = _read_json("parsers.json") or []
-    errors = _validate_config("parsers", parsers_data)
-    if errors:
-        log.logger.warning(f"Config validation errors: {'; '.join(errors[:5])}")
-    for row in parsers_data:
-        conn.execute("INSERT INTO parsers (id, name, filename, description) VALUES (?,?,?,?)",
-                     (row["id"], row["name"], row["filename"], row.get("description", "")))
-
-    # 2. channels
-    channels_data = _read_json("channels.json") or []
-    errors = _validate_config("channels", channels_data)
-    if errors:
-        log.logger.warning(f"Config validation errors: {'; '.join(errors[:5])}")
-    for row in channels_data:
-        conn.execute("INSERT INTO channels (id, name, type, config, enabled) VALUES (?,?,?,?,?)",
-                     (row["id"], row["name"], row["type"], row.get("config", "{}"), row.get("enabled", 1)))
-
-    # 3. templates
-    templates_data = _read_json("templates.json") or []
-    errors = _validate_config("templates", templates_data)
-    if errors:
-        log.logger.warning(f"Config validation errors: {'; '.join(errors[:5])}")
-    for row in templates_data:
-        conn.execute("INSERT INTO templates (id, name, engine, title_tpl, content_tpl) VALUES (?,?,?,?,?)",
-                     (row["id"], row["name"], row.get("engine", "jinja2"),
-                      row.get("title_tpl", ""), row.get("content_tpl", "")))
-
-    # 4. sources
-    sources_data = _read_json("sources.json") or []
-    errors = _validate_config("sources", sources_data)
-    if errors:
-        log.logger.warning(f"Config validation errors: {'; '.join(errors[:5])}")
-    for row in sources_data:
-        conn.execute(
-            """INSERT INTO sources (id, name, slug, port, path, parent_id, parser_id, enabled)
-               VALUES (?,?,?,?,?,?,?,?)""",
-            (row["id"], row["name"], row.get("slug"), row.get("port"),
-             row.get("path", ""), row.get("parent_id"), row.get("parser_id"), row.get("enabled", 1)))
-
-    # 5. bindings
-    bindings_data = _read_json("bindings.json") or []
-    errors = _validate_config("bindings", bindings_data)
-    if errors:
-        log.logger.warning(f"Config validation errors: {'; '.join(errors[:5])}")
-    for row in bindings_data:
-        conn.execute("""INSERT INTO source_channels
-                        (id, source_id, channel_id, template_id, condition_expr,
-                         dedup_key_expr, dedup_window, priority, enabled, urgent)
-                        VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                     (row["id"], row["source_id"], row["channel_id"], row["template_id"],
-                      row.get("condition_expr", ""), row.get("dedup_key_expr", ""),
-                      row.get("dedup_window", 3600), row.get("priority", 0),
-                      row.get("enabled", 1), row.get("urgent", 0)))
-
-    conn.commit()
-    _mark_synced()
-    log.logger.info("Config loaded from JSON files")
+    import_from_json()
 
 
 # ═══════════════════════════════════════════════

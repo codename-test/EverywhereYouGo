@@ -202,7 +202,19 @@ function renderDiff(data) {
   html += '<table class="table table-sm table-bordered"><thead><tr><th>' + t("set.diff_type") + '</th><th>' + t("set.diff_file") + '</th></tr></thead><tbody>';
   (data.config||[]).forEach(function(f) { html += '<tr><td>' + t("set.diff_config") + '</td><td><code>' + f + '</code></td></tr>'; });
   (data.parsers||[]).forEach(function(f) { html += '<tr><td>' + t("set.diff_parser") + '</td><td><code>' + f + '</code></td></tr>'; });
+  (data.channels||[]).forEach(function(f) { html += '<tr><td>' + t("set.diff_channel") + '</td><td><code>' + f + '</code></td></tr>'; });
   html += '</tbody></table>';
+
+  if (data.warnings && data.warnings.length) {
+    html += '<div class="alert alert-warning"><strong>' + t("set.restore_warn") + '</strong><ul>';
+    data.warnings.forEach(function(w) { html += '<li>' + w + '</li>'; });
+    html += '</ul></div>';
+  }
+
+  if (data.config_skipped && data.config_skipped.length) {
+    html += '<p class="text-muted small">' + t("set.restore_skipped") + ': <code>' +
+            data.config_skipped.join(', ') + '</code></p>';
+  }
 
   if (data.errors && data.errors.length) {
     html += '<div class="alert alert-danger"><strong>' + t("set.diff_error") + '</strong><ul>';
@@ -212,10 +224,11 @@ function renderDiff(data) {
 
   div.innerHTML = html;
 
-  if (!data.dry_run) {
-    document.getElementById('confirmImportBtn').classList.add('d-none');
-  } else {
+  // 只有"预览 + 校验通过"才给出确认按钮（dry-run 现已做真实校验）
+  if (data.dry_run && data.ok) {
     document.getElementById('confirmImportBtn').classList.remove('d-none');
+  } else {
+    document.getElementById('confirmImportBtn').classList.add('d-none');
   }
 }
 

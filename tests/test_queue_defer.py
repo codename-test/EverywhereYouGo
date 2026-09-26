@@ -54,19 +54,29 @@ class TestQueueDefer:
         again = self.q.dequeue()
         assert again is not None and again["id"] == qid, "延迟后应能再次被取出"
 
-    def test_exceeding_max_defers_falls_back_to_retry_path(self):
+    def test_exceeding_max_defers_goes_to_dlq_without_counting_a_retry(self):
+        """超限后应**直进死信**，且不动重试次数。
+
+        它从来没被真正发送过，不是"发送失败"——走 nack() 会把两者混为一谈
+        （多计一次重试、错误信息也误导排查）。
+        """
         qid = self._enqueue()
         for _ in range(3):                      # max_defers=2 → 第 3 次超限
             self.q.dequeue()
             self.q.defer(qid, delay_seconds=0, max_defers=2)
 
         conn = db._conn()
-        row = conn.execute(
-            "SELECT status, retry_count, last_error FROM message_queue WHERE id=?", (qid,)
+        assert conn.execute(
+            "SELECT COUNT(*) FROM message_queue WHERE id=?", (qid,)).fetchone()[0] == 0, \
+            "超限后应离开队列"
+        dlq = conn.execute(
+            "SELECT error, retry_count FROM dead_letter_queue WHERE trace_id='t1'"
         ).fetchone()
-        assert row["status"] == "pending", "回退路径应先进入正常重试（pending）"
-        assert row["retry_count"] == 1, "回退后应走 nack，消耗一次重试"
-        assert "deferred" in (row["last_error"] or "")
+        assert dlq is not None, "应进入死信队列"
+        assert "deferred" in dlq["error"]
+        assert "without ever being sent" in dlq["error"]
+        assert "failed" not in dlq["error"].lower(), "不应被描述成发送失败"
+        assert dlq["retry_count"] == 0, "从未发送过，不该消耗重试次数"
 
     def test_retry_due_time_uses_utc_not_local(self):
         """回归测试：next_retry_at 必须以 UTC 为基准。

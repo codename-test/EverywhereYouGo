@@ -441,6 +441,47 @@ class TestI18nCompleteness:
         assert not missing_en, "英文缺键：%s" % missing_en
 
 
+class TestUpgradeWarning:
+    """升级提示里的红字告警（version.json 的 upgrade_warning）必须能透传到前端。"""
+
+    def _fake_check(self, payload):
+        import version_checker
+
+        class _Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return json.dumps(payload).encode("utf-8")
+
+        orig = version_checker.urllib.request.urlopen
+        version_checker.urllib.request.urlopen = lambda *a, **k: _Resp()
+        try:
+            return version_checker.check_now()
+        finally:
+            version_checker.urllib.request.urlopen = orig
+
+    def test_upgrade_warning_passed_through(self):
+        has_update, info = self._fake_check({
+            "version": "99.0.0",
+            "release_date": "2026-01-01",
+            "changelog": ["x"],
+            "url": "https://example.invalid",
+            "upgrade_warning": {"zh": "请先行备份所有配置", "en": "Back up first"},
+        })
+        assert has_update is True
+        assert info["upgrade_warning"]["zh"] == "请先行备份所有配置"
+
+    def test_no_warning_field_is_fine(self):
+        has_update, info = self._fake_check({
+            "version": "99.0.0", "changelog": [], "url": ""})
+        assert has_update is True
+        assert info.get("upgrade_warning") in (None, ""), "没有该字段时不应报错"
+
+
 class TestModuleDecoupling:
     def test_log_does_not_import_db(self):
         """log.py 不应反向依赖 db（依赖方向 main → db → log）。"""

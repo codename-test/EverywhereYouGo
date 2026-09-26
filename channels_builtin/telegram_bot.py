@@ -7,6 +7,7 @@ import log
 class Channel(BaseChannel):
     CHANNEL_TYPE = "telegram_bot"
     CHANNEL_NAME = "Telegram"
+    CHANNEL_VERSION = "1.0"
     CONFIG_FIELDS = [
     {
         "name": "bot_token",
@@ -50,6 +51,8 @@ class Channel(BaseChannel):
                 "text": text,
                 "parse_mode": "HTML",
             }, timeout=15)
+            if resp.status_code in (429, 408):
+                return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
             body = resp.json()
             if body.get("ok", False):
                 return True, ""

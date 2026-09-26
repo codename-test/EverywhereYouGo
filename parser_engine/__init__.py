@@ -15,17 +15,9 @@ import parser_loader
 
 
 def _calc_parser_hash(filename):
-    """计算解析器文件内容的哈希值。"""
-    try:
-        import os
-        parser_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "parsers")
-        path = os.path.join(parser_dir, filename)
-        if os.path.isfile(path):
-            with open(path, "rb") as f:
-                return hashlib.md5(f.read()).hexdigest()[:12]
-    except Exception:
-        pass
-    return ""
+    """委托 parser_loader（走 plugin_paths 解析，兼容内置/用户两个目录）。"""
+    import parser_loader
+    return parser_loader.calc_parser_hash(filename)
 
 
 def _on_message_received(sender, *, trace_id, source_id, raw_body, headers, query_params,

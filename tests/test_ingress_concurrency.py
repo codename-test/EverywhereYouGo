@@ -138,3 +138,38 @@ class TestIngressBackpressure:
         finally:
             server.shutdown()
             server.server_close()
+
+
+class TestIngressDrain:
+    """停机排空：shutdown() 应等在途请求收尾，而不是直接掐断。"""
+
+    def test_shutdown_waits_for_inflight(self):
+        import source_listener
+        pool = source_listener._IngressPool(max_workers=2, max_queue=10)
+        done = []
+
+        def slow():
+            time.sleep(0.3)
+            done.append(1)
+
+        pool.submit(slow)
+        time.sleep(0.05)                     # 让它进入执行
+        assert pool.active_count() == 1
+
+        left = pool.shutdown(wait_seconds=3)
+        assert left == 0, "应等在途任务跑完"
+        assert len(done) == 1, "在途任务必须真的执行完"
+
+    def test_shutdown_gives_up_after_timeout(self):
+        import source_listener
+        pool = source_listener._IngressPool(max_workers=1, max_queue=10)
+        pool.submit(lambda: time.sleep(1.0))
+        time.sleep(0.05)
+        left = pool.shutdown(wait_seconds=0.1)
+        assert left == 1, "超时应如实报告还有几个在途"
+
+    def test_shutdown_rejects_new_tasks(self):
+        import source_listener
+        pool = source_listener._IngressPool(max_workers=1, max_queue=10)
+        pool.shutdown(wait_seconds=0)
+        assert pool.submit(lambda: None) is False

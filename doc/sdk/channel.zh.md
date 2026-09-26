@@ -140,6 +140,21 @@ class Channel(BaseChannel):
 - `send()` 内捕获所有异常，失败时返回 `(False, str(e))`
 - 用 `log.logger` 记录失败详情，便于在系统日志排查
 
+## 插件元数据（可选）
+
+在 `Channel` 类里声明以下类属性，EGo 会用**正则读取**（不执行你的代码），用于在 WebUI 里展示：
+
+```python
+class Channel(BaseChannel):
+    CHANNEL_TYPE = "my_channel"
+    CHANNEL_NAME = "我的通道"            # 显示名
+    CHANNEL_VERSION = "1.0"             # 版本号
+    CHANNEL_EGO_MIN_VERSION = "1.3"     # 声明需要的最低 EGo 版本（可选）
+```
+
+> **注意**：`CHANNEL_EGO_MIN_VERSION` 目前只是**兼容性声明**，不是强制机制。
+> EGo 会读取它，但**不会**据此拒绝加载插件（暂不做依赖/版本解析）。
+
 ## 调试与测试
 
 1. 创建通道并填写配置后，点击「测试」按钮，EGo 会调用 `test()` 发送一条测试消息

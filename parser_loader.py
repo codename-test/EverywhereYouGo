@@ -2,17 +2,21 @@
 # -*- coding: UTF-8 -*-
 """
 解析器插件加载器。
-动态加载 parsers/ 目录下的 .py 文件，调用 parse() 函数。
+动态加载解析器（内置目录 + 用户目录，用户优先），调用 parse() 函数。
+目录布局见 plugin_paths.py。
 """
 
+import hashlib
 import importlib.util
 import os
 import sys
 import traceback
 import threading
+import types
 import log
+import plugin_paths
 
-PARSERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "parsers")
+PARSERS_DIR = plugin_paths.user_dir("parser")   # 兼容旧引用：指向用户目录
 
 
 def _t(key, fallback):
@@ -37,22 +41,32 @@ _parser_cache_lock = threading.Lock()
 
 def load_parser(filename: str):
     """
-    加载 parsers/{filename}，返回 module 对象。
+    加载解析器模块，返回 module 对象。
+    每次从磁盘**显式读取源码并重新执行**，在线编辑 / restore 后立即生效；
+    不依赖文件 (size, mtime) 缓存（规避同长度秒内重写时 FileLoader 复用旧源码）。
     缓存：同名文件只加载一次，调用 reload_parser 显式重载。
     """
     with _parser_cache_lock:
         if filename in _parser_cache:
             return _parser_cache[filename]
 
-    filepath = os.path.join(PARSERS_DIR, filename)
-    if not os.path.isfile(filepath):
-        raise FileNotFoundError(f"Parser not found: {filepath}")
+    filepath = plugin_paths.resolve("parser", filename)
+    if not filepath:
+        raise FileNotFoundError(
+            f"Parser not found: {filename} "
+            f"(the parser file may have been deleted; re-upload it or pick another)")
+
+    # 显式读源 + compile + exec，规避 importlib FileLoader 的 (size, mtime) 缓存
+    with open(filepath, "r", encoding="utf-8") as f:
+        source = f.read()
+    code = compile(source, filepath, "exec")
 
     mod_name = _module_name(filename)
-    spec = importlib.util.spec_from_file_location(mod_name, filepath)
-    mod = importlib.util.module_from_spec(spec)
+    mod = types.ModuleType(mod_name, f"<parser {filename}>")
+    mod.__file__ = filepath
+    mod.__spec__ = None
     sys.modules[mod_name] = mod
-    spec.loader.exec_module(mod)
+    exec(code, mod.__dict__)
 
     if not hasattr(mod, "parse"):
         raise AttributeError(f"Parser {filename} must define a parse() function")
@@ -62,6 +76,43 @@ def load_parser(filename: str):
 
     log.logger.info(f"Parser loaded: {filename}")
     return mod
+
+
+def validate_parser(filepath: str) -> str:
+    """校验解析器文件可加载（不加入缓存）。返回 "" 表示有效，否则返回错误信息。"""
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            source = f.read()
+    except OSError as e:
+        return f"无法读取: {e}"
+    try:
+        code = compile(source, filepath, "exec")
+    except SyntaxError as e:
+        return f"语法错误 (line {e.lineno}): {e.msg}"
+    ns = {}
+    try:
+        exec(code, ns)
+    except Exception as e:
+        return f"执行错误: {type(e).__name__}: {e}"
+    if not callable(ns.get("parse")):
+        return "插件必须定义 parse() 函数"
+    return ""
+
+
+def calc_parser_hash(filename: str) -> str:
+    """解析器文件内容的 MD5 前 12 位。
+
+    用于判断"重发时解析器是否已变更"。走 plugin_paths 解析，
+    因此内置与用户目录都能正确定位（原先两处各自拼 parsers/ 路径，已收敛到这里）。
+    """
+    path = plugin_paths.resolve("parser", filename)
+    if not path:
+        return ""
+    try:
+        with open(path, "rb") as f:
+            return hashlib.md5(f.read()).hexdigest()[:12]
+    except Exception:
+        return ""
 
 
 def reload_parser(filename: str):

@@ -2,7 +2,9 @@
 # -*- coding: UTF-8 -*-
 """
 Channel plugin loader.
-Dynamically loads .py files from channels/ directory.
+动态加载通道插件（内置目录 + 用户目录，用户优先）。
+目录布局见 plugin_paths.py；BaseChannel 已从 channels/ 独立到 channel_base.py，
+因为 channels/ 现在是**用户卷**，基础设施不该放在会被卷遮蔽的位置。
 """
 
 import importlib.util
@@ -10,10 +12,12 @@ import os
 import sys
 import traceback
 import threading
+import types
 import log
-from channels import BaseChannel
+import plugin_paths
+from channel_base import BaseChannel
 
-CHANNELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "channels")
+CHANNELS_DIR = plugin_paths.user_dir("channel")   # 兼容旧引用：指向用户目录
 
 
 def _t(key, fallback):
@@ -34,18 +38,8 @@ _channel_cache_lock = threading.Lock()
 
 
 def list_plugins() -> list:
-    plugins = []
-    if not os.path.isdir(CHANNELS_DIR):
-        return plugins
-    for f in sorted(os.listdir(CHANNELS_DIR)):
-        if f.endswith(".py") and f != "__init__.py" and not f.startswith("_"):
-            filepath = os.path.join(CHANNELS_DIR, f)
-            plugins.append({
-                "filename": f,
-                "name": f.replace(".py", ""),
-                "exists": os.path.isfile(filepath),
-            })
-    return plugins
+    """列出内置与用户通道插件；同名时用户版本优先，并带 source 标注。"""
+    return plugin_paths.list_plugins("channel")
 
 
 def load_plugin(filename: str):
@@ -53,17 +47,25 @@ def load_plugin(filename: str):
         if filename in _channel_cache:
             return _channel_cache[filename]
 
-    filepath = os.path.join(CHANNELS_DIR, filename)
-    if not os.path.isfile(filepath):
-        raise FileNotFoundError(f"Channel plugin not found: {filepath}")
+    filepath = plugin_paths.resolve("channel", filename)
+    if not filepath:
+        raise FileNotFoundError(
+            f"Channel plugin not found: {filename} "
+            f"(the plugin file may have been deleted; re-upload it or pick another type)")
+
+    # 显式读源 + compile + exec，规避 importlib FileLoader 的 (size, mtime) 缓存
+    with open(filepath, "r", encoding="utf-8") as f:
+        source = f.read()
+    code = compile(source, filepath, "exec")
 
     mod_name = _module_name(filename)
-    spec = importlib.util.spec_from_file_location(mod_name, filepath)
-    mod = importlib.util.module_from_spec(spec)
+    mod = types.ModuleType(mod_name, f"<channel {filename}>")
+    mod.__file__ = filepath
+    mod.__spec__ = None
     # Inject BaseChannel so plugins can use it without relative imports
     mod.BaseChannel = BaseChannel
     sys.modules[mod_name] = mod
-    spec.loader.exec_module(mod)
+    exec(code, mod.__dict__)
 
     if not hasattr(mod, "Channel"):
         raise AttributeError(f"Channel plugin {filename} must define a Channel class")
@@ -73,6 +75,28 @@ def load_plugin(filename: str):
 
     log.logger.info(f"Channel plugin loaded: {filename}")
     return mod
+
+
+def validate_channel(filepath: str) -> str:
+    """校验通道插件可加载（不加入缓存）。返回 "" 表示有效，否则返回错误信息。"""
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            source = f.read()
+    except OSError as e:
+        return f"无法读取: {e}"
+    try:
+        code = compile(source, filepath, "exec")
+    except SyntaxError as e:
+        return f"语法错误 (line {e.lineno}): {e.msg}"
+    ns = {}
+    ns["BaseChannel"] = BaseChannel
+    try:
+        exec(code, ns)
+    except Exception as e:
+        return f"执行错误: {type(e).__name__}: {e}"
+    if not callable(ns.get("Channel")):
+        return "插件必须定义 Channel 类"
+    return ""
 
 
 def reload_plugin(filename: str):
@@ -86,22 +110,32 @@ def reload_plugin(filename: str):
 
 
 def create_channel(channel_type: str, config: dict):
-    filename = channel_type if channel_type.endswith(".py") else f"{channel_type}.py"
+    filename = plugin_paths.channel_filename(channel_type)
     mod = load_plugin(filename)
     ChannelClass = mod.Channel
     return ChannelClass(config)
 
 
 def test_channel(channel_type: str, config: dict) -> dict:
+    """测试通道。插件可返回 bool，也可返回 (ok, error) 以便把真实原因带给用户。"""
     try:
         channel = create_channel(channel_type, config)
-        if hasattr(channel, "test"):
-            ok = channel.test()
-            return {"ok": ok, "error": "" if ok else "Test failed"}
-        else:
+        if not hasattr(channel, "test"):
             return {"ok": False, "error": "Plugin has no test() method"}
+        result = channel.test()
+        ok, err = _unpack_test_result(result)
+        return {"ok": ok, "error": "" if ok else (err or "Test failed")}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+def _unpack_test_result(result):
+    """test() 允许两种返回：bool，或 (ok, error)。"""
+    if isinstance(result, tuple):
+        ok = bool(result[0]) if result else False
+        err = result[1] if len(result) > 1 else ""
+        return ok, (err or "")
+    return bool(result), ""
 
 
 def dry_run_channel(filename: str, config: dict) -> dict:

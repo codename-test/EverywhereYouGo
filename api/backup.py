@@ -5,21 +5,35 @@
 import os
 import io
 import json
+import shutil
+import tempfile
 import zipfile
 import datetime as _dt
 
 import db
+import config_manager
 import parser_loader
+import channel_loader
 import i18n
-from flask import Blueprint, request, jsonify, Response, send_file
+import log
+import plugin_paths
+from flask import Blueprint, request, jsonify, Response, send_file, current_app
 
 backup_bp = Blueprint("backup", __name__)
 
-PARSERS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "parsers")
+PARSERS_DIR = plugin_paths.user_dir("parser")    # 兼容旧引用：只指用户目录
+CHANNELS_DIR = plugin_paths.user_dir("channel")  # 用户通道插件目录
 VERSION = "1.0.1"
 
 # 恢复时解压总大小上限（防 ZIP 炸弹撑爆磁盘/volume）
 MAX_RESTORE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+# 备份上传（HTTP body）大小上限（v1.3.2 review #11）。
+# MAX_RESTORE_SIZE 限制的是**解压后**大小，但整个 ZIP 会先 file.read()
+# 进内存 —— 所以还要限制**上传体积本身**。
+# 第一层防护是全局 app.config["MAX_CONTENT_LENGTH"]（见 api/__init__.py），
+# 这里做备份专用的友好报错。
+MAX_BACKUP_UPLOAD_SIZE = 20 * 1024 * 1024  # 20 MB
 
 
 def _safe_filename(fname):
@@ -39,6 +53,28 @@ def _safe_filename(fname):
 
 # ── Export helpers ──
 
+# Export 脱敏的敏感字段关键字（密码/授权码/token/secret/webhook/device_key...）。
+# 仅 Export（JSON 文件）脱敏；Backup zip 保留完整凭据以便恢复。
+_SENSITIVE_KEYS = (
+    "password", "auth_code", "token", "secret",
+    "apikey", "api_key", "webhook", "device_key",
+    "access_token", "appsecret", "client_secret",
+)
+
+def _mask_config(config):
+    """Export 时对敏感字段脱敏（值隐藏为 ***），保留结构。"""
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except ValueError:
+            return config
+    if not isinstance(config, dict):
+        return config
+    return {
+        k: "***" if any(p in k.lower() for p in _SENSITIVE_KEYS) else v
+        for k, v in config.items()
+    }
+
 def _export_source(s):
     return {k: s[k] for k in ("id", "name", "port", "parser_id", "enabled", "created_at")}
 
@@ -49,8 +85,8 @@ def _export_parser(p):
 
 def _export_parser_with_code(p):
     data = _export_parser(p)
-    fpath = os.path.join(PARSERS_DIR, p["filename"])
-    if os.path.isfile(fpath):
+    fpath = plugin_paths.resolve("parser", p["filename"])   # 内置/用户都支持导出
+    if fpath:
         with open(fpath, "r", encoding="utf-8") as f:
             data["code"] = f.read()
     else:
@@ -59,7 +95,14 @@ def _export_parser_with_code(p):
 
 
 def _export_channel(c):
-    return {k: c[k] for k in ("id", "name", "type", "config", "enabled", "created_at")}
+    return {
+        "id": c["id"],
+        "name": c["name"],
+        "type": c["type"],
+        "config": _mask_config(c["config"]),
+        "enabled": bool(c["enabled"]),
+        "created_at": c["created_at"],
+    }
 
 
 def _export_template(t):
@@ -88,8 +131,8 @@ def api_export_single(item_type, item_id):
         item = db.get_parser(item_id)
         if not item:
             return jsonify({"error": i18n._("err.not_found")}), 404
-        fpath = os.path.join(PARSERS_DIR, item["filename"])
-        if not os.path.isfile(fpath):
+        fpath = plugin_paths.resolve("parser", item["filename"])
+        if not fpath:
             return jsonify({"error": i18n._("err.file_not_found_disk")}), 404
         return send_file(fpath, as_attachment=True, download_name=item["filename"])
 
@@ -117,13 +160,118 @@ def api_backup():
             p = os.path.join(CONFIG_DIR, fn)
             if os.path.isfile(p):
                 zf.write(p, f"config/{fn}")
-        for f in os.listdir(PARSERS_DIR):
-            if f.endswith(".py"):
-                zf.write(os.path.join(PARSERS_DIR, f), f"parsers/{f}")
+        # 只打包**用户**插件：内置随镜像发布，打进备份反而会在恢复时
+        # 用旧副本遮蔽新版内置插件
+        for kind, arc in (("parser", "parsers"), ("channel", "channels")):
+            d = plugin_paths.user_dir(kind)
+            if not os.path.isdir(d):
+                continue
+            for f in sorted(os.listdir(d)):
+                if f.endswith(".py"):
+                    zf.write(os.path.join(d, f), f"{arc}/{f}")
         zf.writestr("version.txt", VERSION)
     buf.seek(0)
     return Response(buf.getvalue(), mimetype="application/zip",
                     headers={"Content-Disposition": "attachment; filename=ego_backup.zip"})
+
+
+# ── 恢复校验（v1.3.2 review #9 / #10）────────────────────────────
+
+
+def _core_config_entries():
+    """核心快照文件在 ZIP 里的路径（config/*.json），取自 config_manager。
+
+    只要求"已知的这几个"存在，**不限制** ZIP 里有多余文件 ——
+    将来若新增配置文件，旧 ZIP 仍可恢复（向前兼容）。
+    """
+    from config_manager import _CONFIG_FILES
+    return ["config/%s" % fn for fn in _CONFIG_FILES.values()]
+
+
+def _missing_core_files(zf_names):
+    """返回 ZIP 里缺失的核心快照文件列表（空列表 = 完整）。
+
+    缺文件**不拒绝**，只提示：备份里有什么就恢复什么，未包含的表保持原样
+    （由 config_manager.import_from_json 保证"没文件就不动那张表"）。
+    """
+    present = set(zf_names)
+    return [n for n in _core_config_entries() if n not in present]
+
+
+def _stage_and_validate(zf, config_files, parser_files, channel_files, tmp_root):
+    """把 ZIP 内容落到临时目录并逐项校验。**不写任何最终位置**。
+
+    返回 (staged, errors, skipped_builtin, restored)。
+    校验覆盖：
+      - 文件名安全（防路径穿越，#22）
+      - 配置 JSON 可解析 + **结构合法**（list 形状 / 必需字段）
+      - 插件可加载（parser 语法 / channel 可实例化）
+    """
+    from config_manager import CONFIG_DIR, _CONFIG_FILES
+
+    fname_to_key = {fn: key for key, fn in _CONFIG_FILES.items()}
+    errors = []
+    staged = []
+    skipped_builtin = []
+    restored = {"parser": [], "channel": []}
+
+    # 配置 JSON：写临时 + 解析 + 结构校验
+    for name in config_files:
+        if not name.endswith(".json"):
+            continue
+        fname = os.path.basename(name[len("config/"):])
+        if not _safe_filename(fname):
+            errors.append(f"config/{fname}: 非法文件名")
+            continue
+        tpath = os.path.join(tmp_root, "config", fname)
+        with open(tpath, "wb") as f:
+            f.write(zf.read(name))
+        try:
+            with open(tpath, "r", encoding="utf-8") as f:
+                data = json.loads(f.read())
+        except Exception as e:
+            errors.append(f"config/{fname}: JSON 解析失败 {str(e)[:100]}")
+            continue
+        # 结构校验（review #9）：原先只在导入时 log.warning —— 形状错了要等
+        # 导入阶段 KeyError 才炸，而那时**插件文件已经替换完了**，会留半成品。
+        key = fname_to_key.get(fname)
+        if key:
+            verrs = config_manager._validate_config(key, data)
+            if verrs:
+                errors.append(f"config/{fname}: " + "; ".join(verrs[:3]))
+                continue
+        staged.append((tpath, os.path.join(CONFIG_DIR, fname), fname, "config"))
+
+    # 插件：写临时 + 校验可加载；与内置同名条目跳过（内置随镜像更新）
+    plugin_paths.ensure_user_dirs()
+    for names, kind, prefix in ((parser_files, "parser", "parsers/"),
+                                (channel_files, "channel", "channels/")):
+        kind_dir = kind + "s"
+        udir = plugin_paths.user_dir(kind)
+        for name in names:
+            if not name.endswith(".py"):
+                continue
+            fname = os.path.basename(name[len(prefix):])
+            if not _safe_filename(fname):
+                errors.append(f"{kind}/{fname}: 非法文件名")
+                continue
+            if plugin_paths.is_builtin(kind, fname):
+                skipped_builtin.append(fname)
+                continue
+            tpath = os.path.join(tmp_root, kind_dir, fname)
+            with open(tpath, "wb") as f:
+                f.write(zf.read(name))
+            if kind == "parser":
+                err = parser_loader.validate_parser(tpath)
+            else:
+                err = channel_loader.validate_channel(tpath)
+            if err:
+                errors.append(f"{kind}/{fname}: {err[:120]}")
+                continue
+            staged.append((tpath, os.path.join(udir, fname), fname, kind))
+            restored[kind].append(fname)
+
+    return staged, errors, skipped_builtin, restored
 
 
 @backup_bp.route("/api/restore", methods=["POST"])
@@ -135,50 +283,197 @@ def api_restore():
     file = request.files["file"]
     dry_run = request.args.get("dry_run") == "1"
 
+    # 上传体积上限（v1.3.2 review #11）：必须在 file.read() 之前判断，
+    # 否则超大文件已经整个进内存了。dry_run 同样受限。
+    clen = request.content_length
+    if clen is not None and clen > MAX_BACKUP_UPLOAD_SIZE:
+        return jsonify({"ok": False,
+                        "error": i18n._("err.upload_too_large").replace(
+                            "{size}", str(MAX_BACKUP_UPLOAD_SIZE // (1024 * 1024)))})
+
     try:
         zf = zipfile.ZipFile(io.BytesIO(file.read()))
     except Exception as e:
         return jsonify({"ok": False, "error": f"{i18n._('err.zip_parse_fail')} {e}"})
 
-    config_files = [n for n in zf.namelist() if n.startswith("config/")]
-    parser_files = [n for n in zf.namelist() if n.startswith("parsers/")]
+    names = zf.namelist()
+    config_files = [n for n in names if n.startswith("config/")]
+    parser_files = [n for n in names if n.startswith("parsers/")]
+    channel_files = [n for n in names if n.startswith("channels/")]
 
-    result = {"ok": True, "dry_run": dry_run, "config": config_files, "parsers": parser_files}
+    result = {"ok": True, "dry_run": dry_run, "config": config_files,
+              "parsers": parser_files, "channels": channel_files,
+              "warnings": []}
 
-    if dry_run:
-        return jsonify(result)
+    # dry-run 不再"读个文件名就返回"：它走**同一套**校验（体积 + 完整性 +
+    # JSON 结构 + 插件可加载），只是不落最终位置 —— 这样 WebUI 的"预览"
+    # 才能真正回答"这个备份能不能恢复"（v1.3.2 review #10）。
+    errors = []
 
-    # 防 ZIP 炸弹：累计未压缩大小，超过上限即拒绝（#32）
+    # 1) 完整性**提示**（v1.3.2 review #9）：缺核心配置文件不拒绝。
+    #    备份里有什么就恢复什么；未包含的表保持原样
+    #    （"没文件就不动那张表"由 config_manager.import_from_json 保证）。
+    missing = _missing_core_files(names)
+    if missing:
+        result["warnings"].append(
+            i18n._("warn.restore_partial").replace("{files}", ", ".join(missing)))
+
+    # 2) 防 ZIP 炸弹：累计未压缩大小，超过上限即拒绝（#32）
     total_size = 0
-    for name in config_files + parser_files:
+    for name in config_files + parser_files + channel_files:
         total_size += zf.getinfo(name).file_size
         if total_size > MAX_RESTORE_SIZE:
             zf.close()
-            return jsonify({"ok": False, "error": i18n._("err.restore_too_large")})
+            errors.append(i18n._("err.restore_too_large"))
+            result.update({"ok": False, "errors": errors,
+                           "error": i18n._("err.restore_too_large")})
+            return jsonify(result)
 
-    for name in config_files:
-        if name.endswith(".json"):
-            fname = os.path.basename(name[len("config/"):])
-            if not _safe_filename(fname):
-                continue
-            with open(os.path.join(CONFIG_DIR, fname), "wb") as f:
-                f.write(zf.read(name))
+    # ── 原子恢复（#9）：全量落临时目录 + 校验，全通过才统一替换；
+    # 任一失败 → 原文件不动，无半成功 ──
+    tmp_root = tempfile.mkdtemp(prefix="ego_restore_")
+    for d in ("config", "parsers", "channels"):
+        os.makedirs(os.path.join(tmp_root, d), exist_ok=True)
+    try:
+        staged, stage_errors, skipped_builtin, restored = _stage_and_validate(
+            zf, config_files, parser_files, channel_files, tmp_root)
+        zf.close()
 
-    for name in parser_files:
-        if name.endswith(".py"):
-            fname = os.path.basename(name[len("parsers/"):])
-            if not _safe_filename(fname):
-                continue
-            with open(os.path.join(PARSERS_DIR, fname), "wb") as f:
-                f.write(zf.read(name))
+        if skipped_builtin:
+            result["skipped_builtin"] = skipped_builtin
 
-    zf.close()
+        if errors or stage_errors:
+            errors.extend(stage_errors)
+            result.update({"ok": False, "errors": errors,
+                           "error": i18n._("err.restore_validate_failed")
+                           + " " + "; ".join(errors[:3])})
+            log.logger.warning(f"[Restore] validation failed, nothing written: {errors[:5]}")
+            return jsonify(result)
 
+        if dry_run:
+            # 校验通过 → 告诉前端"可以恢复"，并回报将要写入的文件
+            # （warnings 已在 result 里，前端会展示"部分是部分恢复"的提示）
+            result["staged"] = {
+                "config": [f for _t, _fn, f, k in staged if k == "config"],
+                "parser": restored["parser"],
+                "channel": restored["channel"],
+            }
+            result["errors"] = []
+            return jsonify(result)
+
+        # 全通过 → 统一原子替换到最终位置。
+        # 说明：校验阶段是"全原子"的；提交阶段是逐文件 os.replace()，
+        # 若中途失败（磁盘错误等）会出现"部分已替换"。这里做 best-effort
+        # rollback：替换前备份旧文件，失败时反向恢复（v1.3.2 review #10）。
+        replaced = []          # [(final_path, backup_path_or_None)]
+        try:
+            for tpath, final, fname, kind in staged:
+                backup = None
+                if os.path.exists(final):
+                    backup = final + ".restore.bak"
+                    shutil.copyfile(final, backup)
+                tmpfinal = final + ".restore.tmp"
+                shutil.copyfile(tpath, tmpfinal)
+                os.replace(tmpfinal, final)
+                replaced.append((final, backup))
+                log.logger.info(f"Restore: placed {kind}/{fname}")
+        except Exception as e:
+            log.logger.error(f"[Restore] commit failed, rolling back: {e}")
+            rollback_errors = []
+            for final, backup in reversed(replaced):
+                try:
+                    if backup:
+                        os.replace(backup, final)   # 恢复旧文件
+                    else:
+                        os.unlink(final)            # 原不存在 → 删除新写入的
+                except Exception as re:
+                    rollback_errors.append(f"{os.path.basename(final)}: {str(re)[:100]}")
+            for _, backup in replaced:              # 清理未使用的备份
+                if backup and os.path.exists(backup):
+                    try:
+                        os.unlink(backup)
+                    except OSError:
+                        pass
+            zf.close()
+            return jsonify({"ok": False,
+                            "error": i18n._("err.restore_commit_failed") + " " + str(e)[:200],
+                            "rollback_errors": rollback_errors})
+        # 提交成功 → 删除备份临时文件
+        for _, backup in replaced:
+            if backup and os.path.exists(backup):
+                try:
+                    os.unlink(backup)
+                except OSError:
+                    pass
+
+        if skipped_builtin:
+            log.logger.info(f"Restore: skipped built-in plugin(s): {skipped_builtin}")
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+
+
+    # ── 配置恢复语义（v1.3.2 review #8）：Restore 要求「JSON → DB」无条件覆盖。
+    # 不能调 load_all()——它在 DB 非空时以 DB 为准反向刷回 JSON，
+    # 会把刚恢复的配置覆盖掉，使"配置恢复"变成 no-op。 ──
     try:
         import config_manager
-        config_manager.load_all()
+        # 只允许覆盖**备份里确实带了**的配置文件对应的表。
+        # 不能按"磁盘上有没有"判断 —— config/ 目录里通常已经有上一轮导出的
+        # 旧文件，会把陈旧内容当成备份内容导入（实测踩到过）。
+        from config_manager import _CONFIG_FILES
+        in_zip = {os.path.basename(n) for n in config_files}
+        present_keys = [k for k, fn in _CONFIG_FILES.items() if fn in in_zip]
+        counts, skipped_tables = config_manager.import_from_json(only=present_keys)
+        result["config_imported"] = counts
+        if skipped_tables:
+            # 备份未包含这些配置 → 对应的表原样保留（已在 warnings 里提示）
+            result["config_skipped"] = skipped_tables
+        # 备份可能来自更旧版本，内置解析器随镜像新增；重跑幂等登记，
+        # 避免恢复旧备份后 parsers 表丢了新内置解析器。
+        try:
+            added = db.sync_builtin_parsers()
+            if added:
+                result["builtin_parsers_added"] = added
+        except Exception as e:
+            log.logger.warning(f"[Restore] sync_builtin_parsers failed: {e}")
     except Exception as e:
-        result["load_error"] = str(e)
+        # import_from_json 是事务性的：失败时 DB 未被改动
+        result["ok"] = False
+        result["config_error"] = str(e)
+        log.logger.error(f"[Restore] config import failed: {e}")
+        return jsonify(result)
+
+    # 配置已按备份重建 → 重启 source listener，使监听端口 / 解析器绑定
+    # 与新的 DB 一致（否则仍绑在旧端口上）。
+    try:
+        sm = current_app.source_mgr
+        if sm is not None:
+            sm.stop_all()
+            sm.start_all()
+            result["listeners_restarted"] = True
+    except Exception as e:
+        result["listener_error"] = str(e)
+        log.logger.warning(f"[Restore] restart listeners failed: {e}")
+
+    # 重载恢复的插件代码，刷新运行中缓存 —— 避免"文件已恢复但运行中
+    # _parser_cache / _channel_cache 仍是旧版"（v1.3.1 改进清单 #1）
+    reload_errors = []
+    for fname in restored["parser"]:
+        try:
+            parser_loader.reload_parser(fname)
+            log.logger.info(f"Restore: reloaded parser {fname}")
+        except Exception as e:
+            reload_errors.append(f"parser {fname}: {str(e)[:200]}")
+            log.logger.warning(f"[Restore] reload parser {fname} failed: {e}")
+    for fname in restored["channel"]:
+        try:
+            channel_loader.reload_plugin(fname)
+            log.logger.info(f"Restore: reloaded channel {fname}")
+        except Exception as e:
+            reload_errors.append(f"channel {fname}: {str(e)[:200]}")
+            log.logger.warning(f"[Restore] reload channel {fname} failed: {e}")
+    if reload_errors:
+        result["reload_errors"] = reload_errors
 
     result["ok"] = True
     return jsonify(result)
@@ -307,7 +602,8 @@ def _import_execute(data, mode="insert"):
                 summary["parsers"]["skipped"] += 1
                 continue
             if p.get("code"):
-                fpath = os.path.join(PARSERS_DIR, fn)
+                plugin_paths.ensure_user_dirs()
+                fpath = os.path.join(plugin_paths.user_dir("parser"), fn)
                 with open(fpath, "w", encoding="utf-8") as f:
                     f.write(p["code"])
                 summary["parser_files"]["written"] += 1

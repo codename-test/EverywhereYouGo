@@ -113,6 +113,15 @@ _FAILURE_HINTS = (
     "unreachable", "reset by peer", "eof occurred",
 )
 
+# 可恢复限流（HTTP 429/408）—— 应走 defer 退避，不计入熔断失败
+_THROTTLE_HINTS = ("429", "408", "too many requests", "rate limit", "throttl", "retry after")
+
+
+def is_throttle(error):
+    """是否 HTTP 429/408 类可恢复限流。"""
+    e = (error or "").lower()
+    return any(t in e for t in _THROTTLE_HINTS)
+
 
 def classify(error):
     """判断一次失败是否计入熔断。
@@ -121,6 +130,8 @@ def classify(error):
     未知错误保守计入失败——「发送没成功」比「漏计故障」代价更小。
     """
     e = (error or "").lower()
+    if is_throttle(error):
+        return False  # 限流：不计熔断失败（sender 另行 defer 退避）
     if _HTTP_5XX.search(e) or any(h in e for h in _FAILURE_HINTS):
         return True
     if _HTTP_4XX.search(e):
@@ -130,7 +141,7 @@ def classify(error):
 
 class _ChannelState:
     __slots__ = ("state", "opened_at", "open_count", "half_open_ok",
-                 "window", "consecutive_fail")
+                 "window", "consecutive_fail", "probe_in_flight")
 
     def __init__(self):
         self.state = CLOSED
@@ -139,6 +150,7 @@ class _ChannelState:
         self.half_open_ok = 0
         self.window = collections.deque()   # (ts, is_failure)
         self.consecutive_fail = 0
+        self.probe_in_flight = False        # HALF_OPEN 时只允许一个探测在途
 
 
 class CircuitBreaker:
@@ -228,12 +240,20 @@ class CircuitBreaker:
             if st.state == CLOSED:
                 return True, None
             if st.state == HALF_OPEN:
-                return True, None       # 放行探测
+                # 只放**一个**探测：HALF_OPEN 期间如果全放行，一次故障恢复可能
+                # 瞬间打出一整批请求给刚出问题的第三方；其余请求按"未发送"处理
+                if st.probe_in_flight:
+                    return False, "probing (another probe in flight)"
+                st.probe_in_flight = True
+                return True, None
             # OPEN
             cd = self._cooldown(st)
             if now - st.opened_at >= cd:
                 st.state = HALF_OPEN
                 st.half_open_ok = 0
+                # 这一次本身就是第一个探测，同样要占住闸门，
+                # 否则紧随其后的请求会一起被放行
+                st.probe_in_flight = True
                 self._persist(st, channel_id)
                 log.logger.info(f"[Breaker] Channel {channel_id} → HALF_OPEN (probing)")
                 return True, None
@@ -254,6 +274,7 @@ class CircuitBreaker:
                 st.consecutive_fail += 1
 
             if st.state == HALF_OPEN:
+                st.probe_in_flight = False      # 探测已返回，释放闸门
                 if ok:
                     st.half_open_ok += 1
                     if st.half_open_ok >= param("half_open_ok", HALF_OPEN_NEEDED):

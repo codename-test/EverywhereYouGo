@@ -140,6 +140,23 @@ Key points:
 - Catch all exceptions in `send()`; return `(False, str(e))` on failure
 - Log failure details with `log.logger` for troubleshooting in System Logs
 
+## Plugin Metadata (optional)
+
+Declare the following class attributes on `Channel`. EGo reads them with a
+**regex** (without executing your code) for display in the WebUI:
+
+```python
+class Channel(BaseChannel):
+    CHANNEL_TYPE = "my_channel"
+    CHANNEL_NAME = "My Channel"          # display name
+    CHANNEL_VERSION = "1.0"              # version
+    CHANNEL_EGO_MIN_VERSION = "1.3"      # minimum required EGo version (optional)
+```
+
+> **Note**: `CHANNEL_EGO_MIN_VERSION` is currently a **compatibility declaration**,
+> not an enforcement mechanism. EGo reads it but does **not** refuse to load a
+> plugin based on it (no dependency/version resolution yet).
+
 ## Debugging & Testing
 
 1. After creating the channel and filling in its config, click "Test" — EGo calls `test()` to send a test message

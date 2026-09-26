@@ -7,6 +7,7 @@ import log
 class Channel(BaseChannel):
     CHANNEL_TYPE = "dingtalk"
     CHANNEL_NAME = "钉钉"
+    CHANNEL_VERSION = "1.0"
     CONFIG_FIELDS = [
     {
         "name": "webhook_url",
@@ -34,6 +35,8 @@ class Channel(BaseChannel):
                 "msgtype": "markdown",
                 "markdown": {"title": title, "text": text}
             }, timeout=15)
+            if resp.status_code in (429, 408):
+                return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
             body = resp.json()
             errcode = body.get("errcode")
             if errcode == 0:
