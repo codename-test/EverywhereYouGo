@@ -23,6 +23,7 @@
 
 import os
 import tempfile
+import threading
 
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -227,3 +228,27 @@ def atomic_upload(kind, filename, stream):
 def atomic_write_string(kind, filename, content):
     """原子写入字符串内容。成功 None / 失败 错误串。"""
     return _atomic_replace(kind, filename, content, is_stream=False)
+
+
+# ── 上传临界区锁（v1.3.2 review #9）─────────────────────────────
+# 上传解析器的流程是「查 DB 是否同名 → 落盘 → 入库」，分三步；
+# 两步并发上传同名文件时两边都通过了查重，最终可能出现
+# 「磁盘上是 B 的内容、DB 里是 A 的行」。用 per-(kind,filename) 锁
+# 把这三步串起来即可（DB 的 UNIQUE 只保证入库不重复，管不了文件）。
+#
+# 说明：服务是**单进程多线程**（werkzeug threaded=True，见 web_ui.py），
+# 进程内锁足够；若将来改成多进程部署，需换成文件锁。
+
+_locks = {}
+_locks_guard = threading.Lock()
+
+
+def filename_lock(kind, filename):
+    """返回 (kind, filename) 对应的进程内锁（不存在则创建）。"""
+    key = (kind, filename)
+    with _locks_guard:
+        lk = _locks.get(key)
+        if lk is None:
+            lk = threading.Lock()
+            _locks[key] = lk
+    return lk

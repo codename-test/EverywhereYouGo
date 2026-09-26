@@ -33,6 +33,13 @@ def create_app(source_mgr=None):
     app.secret_key = secret
     app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=24)
 
+    # ── 上传体积上限（v1.3.2 review #11）──
+    # 第一层防护：超过上限的请求由 Flask 直接以 413 拒绝，**不进入视图函数**，
+    # 因此超大 body 不会被 file.read() 整个读进内存。
+    # 备份上传另有 MAX_BACKUP_UPLOAD_SIZE（api/backup.py）做友好报错。
+    _max_upload_mb = int(os.getenv("EGO_MAX_UPLOAD_MB", "32"))
+    app.config["MAX_CONTENT_LENGTH"] = _max_upload_mb * 1024 * 1024
+
     # ── CSRF 缓解（最小化，#24）──
     # 内网自管理场景无需引入完整 Flask-WTF CSRF：
     #   SameSite=Lax 阻断跨站顶层表单提交（主要 CSRF 向量），
@@ -143,5 +150,14 @@ def create_app(source_mgr=None):
     @app.errorhandler(ValidationError)
     def _handle_validation_error(e):
         return jsonify({"status": "error", "error": str(e)}), 400
+
+    # ── 413：请求体超过 MAX_CONTENT_LENGTH（review #11）──
+    @app.errorhandler(413)
+    def _handle_request_too_large(e):
+        msg = i18n._("err.upload_too_large").replace(
+            "{size}", str(app.config.get("MAX_CONTENT_LENGTH", 0) // (1024 * 1024)))
+        if request.path.startswith("/api/"):
+            return jsonify({"error": msg}), 413
+        return msg, 413
 
     return app

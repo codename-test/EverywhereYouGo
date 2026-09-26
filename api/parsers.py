@@ -67,17 +67,21 @@ def api_create_parser():
     if reason:
         return jsonify({"error": reason}), 400
 
-    # 同 filename 已存在则直接拒绝（避免覆盖已有用户解析器）
-    if any(p["filename"] == filename for p in db.get_parsers()):
-        return jsonify({"error": i18n._("err.parser_exists")}), 400
+    # 「查重 → 落盘 → 入库」三步必须串行（v1.3.2 review #9）：
+    # 并发上传同名文件时两边都会通过查重，最终可能"磁盘是 B 的内容、
+    # DB 是 A 的行"（DB 的 UNIQUE 只保证入库不重复，管不住文件已落盘）。
+    with plugin_paths.filename_lock("parser", filename):
+        # 同 filename 已存在则直接拒绝（避免覆盖已有用户解析器）
+        if any(p["filename"] == filename for p in db.get_parsers()):
+            return jsonify({"error": i18n._("err.parser_exists")}), 400
 
-    err = plugin_paths.atomic_upload("parser", filename, f)
-    if err:
-        return jsonify({"error": err}), 400
-    pid = db.create_parser(name, filename, desc)
+        err = plugin_paths.atomic_upload("parser", filename, f)
+        if err:
+            return jsonify({"error": err}), 400
+        pid = db.create_parser(name, filename, desc)
 
-    if pid is None:
-        return jsonify({"error": i18n._("err.parser_exists")}), 400
+        if pid is None:
+            return jsonify({"error": i18n._("err.parser_exists")}), 400
     log.logger.info(f"Parser uploaded: {filename} (validated + atomic)")
     return jsonify({"id": pid})
 
@@ -91,12 +95,13 @@ def api_delete_parser(pid):
     if rejected:
         return rejected
 
-    filepath = plugin_paths.resolve("parser", p["filename"])
-    if filepath and plugin_paths.source_of("parser", p["filename"]) == "user":
-        os.remove(filepath)
-    db.delete_parser(pid)
-    import config_manager
-    config_manager.sync_table("parsers")
+    with plugin_paths.filename_lock("parser", p["filename"]):
+        filepath = plugin_paths.resolve("parser", p["filename"])
+        if filepath and plugin_paths.source_of("parser", p["filename"]) == "user":
+            os.remove(filepath)
+        db.delete_parser(pid)
+        import config_manager
+        config_manager.sync_table("parsers")
     return jsonify({"status": "ok"})
 
 
@@ -126,15 +131,17 @@ def api_update_parser_content(pid):
     if "content" not in data:
         return jsonify({"error": i18n._("err.missing_content")}), 400
 
-    # 原子写 + 验证：失败则旧内容保持不变，成功才替换
-    err = plugin_paths.atomic_write_string("parser", p["filename"], data["content"])
-    if err:
-        return jsonify({"error": err}), 400
-    try:
-        parser_loader.reload_parser(p["filename"])
-        return jsonify({"status": "ok"})
-    except Exception as e:
-        return jsonify({"error": i18n._("err.syntax_error").replace("{error}", str(e))}), 400
+    # 与 upload/DELETE 同锁串行（review #9），避免"文件刚删又被写回"类交叉
+    with plugin_paths.filename_lock("parser", p["filename"]):
+        # 原子写 + 验证：失败则旧内容保持不变，成功才替换
+        err = plugin_paths.atomic_write_string("parser", p["filename"], data["content"])
+        if err:
+            return jsonify({"error": err}), 400
+        try:
+            parser_loader.reload_parser(p["filename"])
+        except Exception as e:
+            return jsonify({"error": i18n._("err.syntax_error").replace("{error}", str(e))}), 400
+    return jsonify({"status": "ok"})
 
 
 @parsers_bp.route("/api/parsers/<int:pid>/variables", methods=["GET"])

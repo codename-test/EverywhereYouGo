@@ -54,6 +54,49 @@ def _make_zip(entries):
     return buf
 
 
+def _use_temp_db(tmp_dir):
+    """把当前线程的 DB 切到 tmp_dir 下的独立库，返回原 DB_PATH。
+
+    v1.3.2 review #8 起，/api/restore 会**真正**执行「JSON → SQLite 全量替换」。
+    而所有测试文件共用同一个 DB_PATH（各自模块级 `os.environ["DB_PATH"]=...`
+    只有第一个 import db 的生效），因此 restore 相关测试必须用独立库，
+    否则会清空共享测试库、污染后续测试文件（曾导致 test_event_chain 9 个失败）。
+    """
+    import db as _db
+    import db.connection as _dbconn
+
+    old_path = _dbconn.DB_PATH
+    conn = getattr(_dbconn._local, "conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        try:
+            del _dbconn._local.conn
+        except AttributeError:
+            pass
+    _dbconn.DB_PATH = os.path.join(tmp_dir, "isolated.db")
+    _db.init_db()
+    return old_path
+
+
+def _restore_db(old_path):
+    """把 DB_PATH 切回原值（配合 _use_temp_db）。"""
+    import db.connection as _dbconn
+    conn = getattr(_dbconn._local, "conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        try:
+            del _dbconn._local.conn
+        except AttributeError:
+            pass
+    _dbconn.DB_PATH = old_path
+
+
 class TestRestore:
     """通过 Flask 测试客户端验证 /api/restore 加固。"""
 
@@ -63,11 +106,14 @@ class TestRestore:
         self.parsers_dir = os.path.join(self.tmp, "parsers")
         os.makedirs(self.config_dir)
         os.makedirs(self.parsers_dir)
+        # restore 会重建 DB（review #8）→ 用独立库，避免污染共享测试库
+        self._old_db = _use_temp_db(self.tmp)
         self.app = create_app(source_mgr=None)
         self.app.config["TESTING"] = True
         self.client = self.app.test_client()
 
     def teardown_method(self):
+        _restore_db(self._old_db)
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _patch_dirs(self, monkeypatch):
@@ -177,6 +223,123 @@ class TestRestore:
         assert data["ok"] is False, data
         assert not os.path.isfile(os.path.join(self.config_dir, "channels.json"))
         assert not os.path.isfile(os.path.join(self.parsers_dir, "ok.py"))
+
+    def test_restore_config_overwrites_db(self, monkeypatch):
+        """#8: Restore 的配置必须真正覆盖 DB（JSON → DB），而不是被 DB 反刷回去。
+
+        回归场景：当前 DB 有通道 A，备份 ZIP 里是通道 B。
+        修复前 restore 调 load_all() → DB 非空 → 以 DB 为准把 JSON 刷回，
+        结果是 B 被 A 覆盖，"配置恢复"变成 no-op（只有插件文件真恢复）。
+        """
+        import db as _db
+        self._patch_dirs(monkeypatch)
+        # 当前 DB：一个只存在于 DB 的通道
+        _db.create_channel("db-only", "wechat_work_bot", "{}", 1)
+        assert [c["name"] for c in _db.get_channels()] == ["db-only"]
+
+        # 备份：channels.json 里是一个不同的通道
+        backup_channels = [{"id": 77, "name": "from-backup",
+                            "type": "wechat_work_bot", "config": "{}", "enabled": 1}]
+        zip_buf = _make_zip({"config/channels.json":
+                             json.dumps(backup_channels).encode("utf-8")})
+        resp = self.client.post("/api/restore",
+                                data={"file": (zip_buf, "b.zip")},
+                                content_type="multipart/form-data")
+        data = resp.get_json()
+        assert data["ok"] is True, data
+        assert "config_imported" in data, "恢复应报告配置导入结果: %s" % data
+
+        names = [c["name"] for c in _db.get_channels()]
+        assert names == ["from-backup"], "备份配置未覆盖 DB：%s" % names
+
+    def test_restore_restarts_listeners(self, monkeypatch):
+        """#8: 配置按备份重建后，必须重启 source listener（端口/绑定随新配置）。
+
+        注意 API 侧读的是 `current_app.source_mgr`（Flask app 属性）——
+        main.py 曾经只设模块级 `web_ui.source_mgr`，导致这里恒为 None、
+        重启监听是空操作。
+        """
+        self._patch_dirs(monkeypatch)
+        calls = []
+
+        class _FakeSM:
+            def stop_all(self):
+                calls.append("stop_all")
+
+            def start_all(self):
+                calls.append("start_all")
+
+        app = create_app(source_mgr=_FakeSM())
+        app.config["TESTING"] = True
+        client = app.test_client()
+        zip_buf = _make_zip({"config/channels.json": b"[]"})
+        resp = client.post("/api/restore",
+                           data={"file": (zip_buf, "b.zip")},
+                           content_type="multipart/form-data")
+        data = resp.get_json()
+        assert data["ok"] is True, data
+        assert data.get("listeners_restarted") is True, data
+        assert calls == ["stop_all", "start_all"], calls
+
+    def test_restore_preserves_created_at(self, monkeypatch):
+        """恢复应还原备份里的 created_at，而不是落成「恢复时刻」。
+
+        回归：导入 INSERT 原先不带 created_at，恢复一次备份会让所有
+        解析器/通道/数据源/模板的创建时间都变成恢复那一刻。
+        """
+        import db as _db
+        self._patch_dirs(monkeypatch)
+        stamp = "2020-01-02 03:04:05"
+        backup = [{"id": 7, "name": "c7", "type": "wechat_work_bot",
+                   "config": "{}", "enabled": 1, "created_at": stamp}]
+        zip_buf = _make_zip({"config/channels.json":
+                             json.dumps(backup).encode("utf-8")})
+        resp = self.client.post("/api/restore",
+                                data={"file": (zip_buf, "b.zip")},
+                                content_type="multipart/form-data")
+        assert resp.get_json()["ok"] is True
+        rows = {c["name"]: c for c in _db.get_channels()}
+        assert rows["c7"]["created_at"] == stamp, rows["c7"]["created_at"]
+
+        # 老备份缺 created_at → 回落 CURRENT_TIMESTAMP，不报错
+        legacy = [{"id": 8, "name": "c8", "type": "wechat_work_bot",
+                   "config": "{}", "enabled": 1}]
+        zip2 = _make_zip({"config/channels.json":
+                          json.dumps(legacy).encode("utf-8")})
+        resp2 = self.client.post("/api/restore",
+                                 data={"file": (zip2, "b.zip")},
+                                 content_type="multipart/form-data")
+        assert resp2.get_json()["ok"] is True
+        rows2 = {c["name"]: c for c in _db.get_channels()}
+        assert rows2["c8"]["created_at"], "缺字段应回落 CURRENT_TIMESTAMP"
+
+    def test_oversized_upload_rejected_413(self):
+        """#11: 超过 MAX_CONTENT_LENGTH 的上传在 HTTP 层被拒（413），不进入视图。"""
+        app = create_app(source_mgr=None)
+        app.config["TESTING"] = True
+        app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024      # 1MB，便于构造
+        client = app.test_client()
+        big = b"0" * (2 * 1024 * 1024)
+        resp = client.post("/api/restore",
+                           data={"file": (io.BytesIO(big), "big.zip")},
+                           content_type="multipart/form-data")
+        assert resp.status_code == 413, resp.status_code
+        assert "error" in resp.get_json()
+
+    def test_backup_upload_limit_before_read(self, monkeypatch):
+        """#11: 备份上传超过 MAX_BACKUP_UPLOAD_SIZE → 早于 file.read() 被拒。"""
+        import api.backup as bk
+        monkeypatch.setattr(bk, "MAX_BACKUP_UPLOAD_SIZE", 2 * 1024 * 1024)
+        app = create_app(source_mgr=None)
+        app.config["TESTING"] = True
+        client = app.test_client()
+        payload = b"0" * (3 * 1024 * 1024)                  # 3MB > 2MB
+        resp = client.post("/api/restore",
+                           data={"file": (io.BytesIO(payload), "b.zip")},
+                           content_type="multipart/form-data")
+        data = resp.get_json()
+        assert data["ok"] is False, data
+        assert "2MB" in data["error"], data
 class TestRestoreReload:
     """v1.3.1 改进清单 #1：Restore 后应重载插件代码，刷新运行中缓存。"""
 
@@ -188,11 +351,14 @@ class TestRestoreReload:
         os.makedirs(self.config_dir)
         os.makedirs(self.parsers_dir)
         os.makedirs(self.channels_dir)
+        # restore 会重建 DB（review #8）→ 用独立库，避免污染共享测试库
+        self._old_db = _use_temp_db(self.tmp)
         self.app = create_app(source_mgr=None)
         self.app.config["TESTING"] = True
         self.client = self.app.test_client()
 
     def teardown_method(self):
+        _restore_db(self._old_db)
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _patch_dirs(self, monkeypatch):

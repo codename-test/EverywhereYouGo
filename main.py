@@ -141,6 +141,12 @@ def init_ego():
     # 注入 source_mgr 到 web_ui（供 API 调用）
     import web_ui
     web_ui.source_mgr = mgr
+    # API 侧读的是 `current_app.source_mgr`（Flask app 的属性），
+    # 而 web_ui.py 里 `app = create_app(source_mgr=None)` 已把 app.source_mgr
+    # 定成 None —— 只设模块级 `web_ui.source_mgr` 是**取不到的**。
+    # 结果：/api/sources 的增删改启停监听、restore 的监听重启长期是空操作
+    # （静默失效，只在"新建带端口数据源后必须重启才生效"这类现象里露头）。
+    web_ui.app.source_mgr = mgr
 
     # 5. 启动 DND 队列检查线程
     dnd_thread = threading.Thread(

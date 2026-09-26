@@ -35,7 +35,7 @@ HTTP POST → Data Source → Parser → Route Match → Template Render → Pus
 | **Parser** | Python script, extracts fields and defines variable names |
 | **Route** | Condition expression matches channel-template pairs |
 | **Template** | Simple / Jinja2 renders title and content |
-| **Channel** | WeChat Work, DingTalk, Feishu, Telegram, Bark |
+| **Channel** | WeChat Work, DingTalk, Feishu, Telegram, Bark, Email (SMTP) |
 
 ## Authentication
 
@@ -82,6 +82,10 @@ it is not the normal path for applying changes.
 System settings (DND, log level, etc.), the message log and the queue are also stored in SQLite.
 For backup/restore use **Settings → Backup**, which packages `config/*.json` plus **your uploaded**
 `parsers/*.py` and `channels/*.py`.
+
+**Restore is not the same path as startup loading**: on restore the backup snapshot becomes the
+new source of truth (`config/*.json` → SQLite, unconditional replace — config absent from the
+backup is removed), then plugins are reloaded and every data-source listener is restarted.
 
 ## Plugin Directories
 
@@ -189,8 +193,8 @@ By default **only the channels that failed are retried** — already-succeeded c
 not pushed a second time. Use `scope=all` to force a full re-push.
 
 ### Import & Export
-- **Backup**: Download ZIP package (`config/*.json` + `parsers/*.py`)
-- **Restore**: Upload ZIP package, automatically takes effect after overwriting configuration
+- **Backup**: Download ZIP package (`config/*.json` + `parsers/*.py` + `channels/*.py`)
+- **Restore**: Upload ZIP package; the backup **becomes the config source of truth** (JSON → DB full replace), plugin files are restored and hot-reloaded
 - **JSON Import**: Supports dry_run preview, insert/overwrite two modes, dependency check
 
 > **Security note**
@@ -258,6 +262,7 @@ Built-in Chinese and English bilingual support, switch languages anytime via lan
 | Feishu | Webhook | `feishu` |
 | Telegram | Bot API | `telegram_bot` |
 | Bark | API | `bark` |
+| Email (SMTP) | SMTP | `smtp_email` |
 
 ## Environment Variables
 

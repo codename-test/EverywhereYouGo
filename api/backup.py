@@ -16,7 +16,7 @@ import channel_loader
 import i18n
 import log
 import plugin_paths
-from flask import Blueprint, request, jsonify, Response, send_file
+from flask import Blueprint, request, jsonify, Response, send_file, current_app
 
 backup_bp = Blueprint("backup", __name__)
 
@@ -26,6 +26,13 @@ VERSION = "1.0.1"
 
 # 恢复时解压总大小上限（防 ZIP 炸弹撑爆磁盘/volume）
 MAX_RESTORE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+# 备份上传（HTTP body）大小上限（v1.3.2 review #11）。
+# MAX_RESTORE_SIZE 限制的是**解压后**大小，但整个 ZIP 会先 file.read()
+# 进内存 —— 所以还要限制**上传体积本身**。
+# 第一层防护是全局 app.config["MAX_CONTENT_LENGTH"]（见 api/__init__.py），
+# 这里做备份专用的友好报错。
+MAX_BACKUP_UPLOAD_SIZE = 20 * 1024 * 1024  # 20 MB
 
 
 def _safe_filename(fname):
@@ -176,6 +183,14 @@ def api_restore():
     file = request.files["file"]
     dry_run = request.args.get("dry_run") == "1"
 
+    # 上传体积上限（v1.3.2 review #11）：必须在 file.read() 之前判断，
+    # 否则超大文件已经整个进内存了。dry_run 同样受限。
+    clen = request.content_length
+    if clen is not None and clen > MAX_BACKUP_UPLOAD_SIZE:
+        return jsonify({"ok": False,
+                        "error": i18n._("err.upload_too_large").replace(
+                            "{size}", str(MAX_BACKUP_UPLOAD_SIZE // (1024 * 1024)))})
+
     try:
         zf = zipfile.ZipFile(io.BytesIO(file.read()))
     except Exception as e:
@@ -263,12 +278,50 @@ def api_restore():
             return jsonify({"ok": False,
                             "error": "恢复校验失败，未修改任何文件: " + "; ".join(errors[:3])})
 
-        # 全通过 → 统一原子替换到最终位置
-        for tpath, final, fname, kind in staged:
-            tmpfinal = final + ".restore.tmp"
-            shutil.copyfile(tpath, tmpfinal)
-            os.replace(tmpfinal, final)
-            log.logger.info(f"Restore: placed {kind}/{fname}")
+        # 全通过 → 统一原子替换到最终位置。
+        # 说明：校验阶段是"全原子"的；提交阶段是逐文件 os.replace()，
+        # 若中途失败（磁盘错误等）会出现"部分已替换"。这里做 best-effort
+        # rollback：替换前备份旧文件，失败时反向恢复（v1.3.2 review #10）。
+        replaced = []          # [(final_path, backup_path_or_None)]
+        try:
+            for tpath, final, fname, kind in staged:
+                backup = None
+                if os.path.exists(final):
+                    backup = final + ".restore.bak"
+                    shutil.copyfile(final, backup)
+                tmpfinal = final + ".restore.tmp"
+                shutil.copyfile(tpath, tmpfinal)
+                os.replace(tmpfinal, final)
+                replaced.append((final, backup))
+                log.logger.info(f"Restore: placed {kind}/{fname}")
+        except Exception as e:
+            log.logger.error(f"[Restore] commit failed, rolling back: {e}")
+            rollback_errors = []
+            for final, backup in reversed(replaced):
+                try:
+                    if backup:
+                        os.replace(backup, final)   # 恢复旧文件
+                    else:
+                        os.unlink(final)            # 原不存在 → 删除新写入的
+                except Exception as re:
+                    rollback_errors.append(f"{os.path.basename(final)}: {str(re)[:100]}")
+            for _, backup in replaced:              # 清理未使用的备份
+                if backup and os.path.exists(backup):
+                    try:
+                        os.unlink(backup)
+                    except OSError:
+                        pass
+            zf.close()
+            return jsonify({"ok": False,
+                            "error": i18n._("err.restore_commit_failed") + " " + str(e)[:200],
+                            "rollback_errors": rollback_errors})
+        # 提交成功 → 删除备份临时文件
+        for _, backup in replaced:
+            if backup and os.path.exists(backup):
+                try:
+                    os.unlink(backup)
+                except OSError:
+                    pass
 
         if skipped_builtin:
             result["skipped_builtin"] = skipped_builtin
@@ -279,11 +332,38 @@ def api_restore():
         shutil.rmtree(tmp_root, ignore_errors=True)
 
 
+    # ── 配置恢复语义（v1.3.2 review #8）：Restore 要求「JSON → DB」无条件覆盖。
+    # 不能调 load_all()——它在 DB 非空时以 DB 为准反向刷回 JSON，
+    # 会把刚恢复的配置覆盖掉，使"配置恢复"变成 no-op。 ──
     try:
         import config_manager
-        config_manager.load_all()
+        result["config_imported"] = config_manager.import_from_json()
+        # 备份可能来自更旧版本，内置解析器随镜像新增；重跑幂等登记，
+        # 避免恢复旧备份后 parsers 表丢了新内置解析器。
+        try:
+            added = db.sync_builtin_parsers()
+            if added:
+                result["builtin_parsers_added"] = added
+        except Exception as e:
+            log.logger.warning(f"[Restore] sync_builtin_parsers failed: {e}")
     except Exception as e:
-        result["load_error"] = str(e)
+        # import_from_json 是事务性的：失败时 DB 未被改动
+        result["ok"] = False
+        result["config_error"] = str(e)
+        log.logger.error(f"[Restore] config import failed: {e}")
+        return jsonify(result)
+
+    # 配置已按备份重建 → 重启 source listener，使监听端口 / 解析器绑定
+    # 与新的 DB 一致（否则仍绑在旧端口上）。
+    try:
+        sm = current_app.source_mgr
+        if sm is not None:
+            sm.stop_all()
+            sm.start_all()
+            result["listeners_restarted"] = True
+    except Exception as e:
+        result["listener_error"] = str(e)
+        log.logger.warning(f"[Restore] restart listeners failed: {e}")
 
     # 重载恢复的插件代码，刷新运行中缓存 —— 避免"文件已恢复但运行中
     # _parser_cache / _channel_cache 仍是旧版"（v1.3.1 改进清单 #1）

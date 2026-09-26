@@ -35,7 +35,7 @@ HTTP POST → 数据源 → 解析器 → 路由匹配 → 模板渲染 → 推�
 | **解析器** | Python 脚本，提取字段并定义变量名 |
 | **路由** | 条件表达式匹配渠道-模板对 |
 | **模板** | Simple / Jinja2 渲染标题和内容 |
-| **渠道** | 企业微信、钉钉、飞书、Telegram、Bark |
+| **渠道** | 企业微信、钉钉、飞书、Telegram、Bark、邮件 (SMTP) |
 
 ## 认证
 
@@ -79,6 +79,10 @@ EGO_AUTH_TOKEN=your-secret-token python3 main.py
 
 系统设置（DND、日志级别等）、消息日志与队列同样存储在 SQLite。
 配置备份 / 恢复请用「系统设置 → 备份」，会打包 `config/*.json` + **用户上传的** `parsers/*.py` 与 `channels/*.py`。
+
+**恢复（Restore）与启动加载不是同一条路径**：恢复时备份快照即新的真相源
+（`config/*.json` → SQLite 无条件覆盖，未出现在备份里的配置会被移除），
+随后重载插件并重启各数据源监听。
 
 ## 插件目录
 
@@ -179,8 +183,8 @@ def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
 需要整体重推时可用 `scope=all`。
 
 ### 导入导出
-- **备份**：下载 ZIP 包（`config/*.json` + `parsers/*.py`）
-- **恢复**：上传 ZIP 包，覆盖配置后自动生效
+- **备份**：下载 ZIP 包（`config/*.json` + `parsers/*.py` + `channels/*.py`）
+- **恢复**：上传 ZIP 包，**配置以备份为准写入数据库**（JSON → DB 全量替换），插件文件同步恢复并热重载
 - **JSON 导入**：支持 dry_run 预览、insert/overwrite 两种模式、依赖检查
 
 > **安全提示**
@@ -240,6 +244,7 @@ def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
 | 飞书 | Webhook | `feishu` |
 | Telegram | Bot API | `telegram_bot` |
 | Bark | API | `bark` |
+| 邮件 (SMTP) | SMTP | `smtp_email` |
 
 ## 环境变量
 

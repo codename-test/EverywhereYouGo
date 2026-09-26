@@ -103,6 +103,22 @@ def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
 - 用 `.get(key, 默认值)` 逐层容错，避免 `KeyError`
 - 额外输出 `event`、`item_type` 等字段，方便在路由条件里精确分流
 
+## 插件元数据（可选）
+
+在模块顶层声明以下常量，EGo 会用**正则读取**（不执行你的代码），用于在 WebUI 里展示：
+
+```python
+PARSER_NAME = "我的解析器"          # 显示名（缺省用文件名）
+PARSER_DESC = "解析 XXX 数据"        # 描述
+PARSER_VERSION = "1.0"             # 版本号
+PARSER_EGO_MIN_VERSION = "1.3"     # 声明需要的最低 EGo 版本（可选）
+```
+
+> **注意**：`PARSER_EGO_MIN_VERSION` 目前只是**兼容性声明**，不是强制机制。
+> EGo 会读取它、并在解析器列表接口里返回（字段 `ego_min_version`），
+> 但**不会**据此拒绝加载插件（暂不做依赖/版本解析）。
+> 它的用途是标注"本插件至少需要 EGo x.y"，便于用户自行判断兼容性。
+
 ## 调试与测试
 
 1. 数据源收到消息后，原始请求会被记录为**样本数据**

@@ -1,7 +1,7 @@
 # EGo 开发文档
 
 > EverywhereYouGo — 通用信息转发平台
-> 最后更新：2026-07-22
+> 最后更新：2026-09-26
 
 ---
 
@@ -57,7 +57,7 @@ HTTP POST ──→ source_listener ──→ parser_engine ──→ router_eng
 | 队列粒度 | 按通道入队 | 单通道失败不影响其他通道，重试只重发失败通道，避免整条消息重复推送 |
 | 模板引擎 | Jinja2 SandboxedEnvironment | 用户可编辑模板，必须防 SSTI；Sandboxed 拦截 `__class__`/`import`/`attr('__x__')` 等危险操作 |
 | 条件表达式 | simpleeval | 安全求值，不暴露 Python 内置函数；支持 and/or/比较/括号，满足路由条件需求 |
-| 配置持久化 | JSON 文件（唯一真相源）| 用户可直接编辑/备份/版本管理；SQLite 仅作运行时缓存，启动时从 JSON 加载 |
+| 配置持久化 | SQLite（运行时真相源）+ JSON 导出 | 所有读写以库内数据为准；`config/*.json` 是导出/备份介质，便于备份、版本管理与迁移（首次启动可从 JSON 导入） |
 | 配置并发保护 | fcntl.flock | 最小改动，不引入新依赖；读共享锁/写排他锁，防 API 并发写损坏 JSON |
 | 通道插件化 | importlib.util 动态加载 | 用户放 .py 文件到 channels/ 即生效，无需注册；BaseChannel 注入模块命名空间 |
 | 重试策略 | 指数退避 5s/30s/2min | 平衡及时性和对第三方 API 的压力；3 次耗尽进 DLQ 由用户决定 |
@@ -99,13 +99,13 @@ HTTP POST ──→ source_listener ──→ parser_engine ──→ router_eng
 - 解析器不返回 content 且 content_tpl 为空时，渲染器自动生成 KV 列表
 
 ### 渠道 (Channel)
-- `channels/` — 6 种内置通道：企业微信 Bot / 企业微信 API / 钉钉 / 飞书 / Telegram / Bark
+- `channels_builtin/` — 7 种内置通道：企业微信 Bot / 企业微信 API / 钉钉 / 飞书 / Telegram / Bark / 邮件 (SMTP)
 - `channel_loader.py` — 通道插件加载器（Channel SDK）
-  - importlib.util 动态加载 channels/*.py
+  - importlib.util 动态加载 channels/*.py（用户目录优先）与 channels_builtin/*.py
   - BaseChannel 注入模块命名空间，插件禁用 `from . import`
   - 每个插件导出 Channel 类，CONFIG_FIELDS 类属性定义动态表单字段
 - `sender_engine/` — 事件引擎包，监听 `message.routed`
-  - 双路径：webhook 流入队异步发送；flush/retry 直接发送（绕过队列）
+  - 双路径：webhook 流入队异步发送；flush/retry 直接发送（不入队，但**共用 `_send_via_channel()`**，同样受熔断与限流约束）
   - 去重：多字段拼接去重键 + 可配窗口时间
   - 并行：ThreadPoolExecutor，最多 10 并发
 
@@ -130,12 +130,12 @@ RECEIVED → PARSED → SENDING → SUCCESS / FAILED
 
 ## 配置存储
 
-- `config/*.json` — 唯一真相源，5 类配置：sources / channels / templates / bindings / settings
-- SQLite（`ego.db`）— 消息日志 + 队列 + 运行时缓存
-- `config_manager.py` — 启动时 JSON → SQLite 同步，UI 编辑即时双向同步，外部修改通过 mtime 检测
+- SQLite（`ego.db`）— **运行时真相源**：所有读写以库内数据为准
+- `config/*.json` — **导出 / 备份介质**，5 类配置：sources / channels / templates / bindings / settings
+- `config_manager.py` — UI 编辑即时同步到 JSON；启动时 `load_all()` 仅当 DB 为空才从 JSON 导入，DB 非空则以 DB 为准回刷 JSON；备份恢复走 `import_from_json()`（JSON → DB 无条件覆盖）
 - 文件锁：`fcntl.flock`（读 LOCK_SH / 写 LOCK_EX），防并发写损坏
 - Schema 校验：5 类配置加载时校验必需字段，格式错误记日志告警
-- 注意：启动时 `load_all()` 从 JSON 覆盖 DB，改 DB 默认值必须同步改 JSON
+- 注意：日常改配置请用 WebUI（改完即时生效）。`load_all()` 在 DB 非空时**不会**用 JSON 覆盖 DB；直接编辑 `config/*.json` 只在 DB 为空（首次导入）时生效
 
 ---
 
@@ -232,12 +232,12 @@ EverywhereYouGo/
 ├── channel_loader.py      # 通道插件加载器
 ├── source_manager.py      # 编排层：全链路 + 队列刷新 + 重发
 │
-├── api/                   # RESTful API（11 个 Blueprint）
+├── api/                   # RESTful API（10 个 Blueprint）
 ├── db/                    # 数据库层（connection + schema + queries，WAL）
-├── channels/              # 6 种内置通道
+├── channels_builtin/      # 7 种内置通道（另 channels/ 为用户目录）
 ├── parsers/               # 用户自定义解析器
 ├── templates/             # HTML 前端模板
-├── tests/                 # 自动化测试（85 个）
+├── tests/                 # 自动化测试（325 个）
 ├── config/                # JSON 配置文件
 │
 ├── config_manager.py      # JSON ↔ SQLite 同步（文件锁 + Schema）
