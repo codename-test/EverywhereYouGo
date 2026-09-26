@@ -37,6 +37,39 @@ Webhook 接收（`/in/...`）与健康检查（`/api/health`）是机器间流�
 - `WEB_SSL_PORT`（默认 5001）：HTTPS，管理页面（SSL 启用时监听）。
 - `EGO_SSL_ENABLED`（默认 1）：设为 `0` 可**完全关闭**应用自身 HTTPS——跳过证书生成、只监听 HTTP、不跳转、会话 Cookie 不加 `Secure`。仅当你明确要纯 HTTP（或 TLS 由前置反代终结且不想让应用再加密）时使用；本目录各配置默认都不关。
 
+## 升级与备份
+
+**升级前请先备份。** 打开管理页面 →「系统设置 → 备份」→「下载备份」，得到 `ego_backup_*.zip`。
+备份含 `config/*.json` + 你上传的 `parsers/*.py` 与 `channels/*.py`，**以及完整推送凭据**
+（SMTP 密码 / 授权码 / token），请妥善保管，勿外泄。
+
+```bash
+docker compose pull && docker compose up -d     # 拉新镜像并重建容器
+```
+
+用户插件落在 named volume（`ego_parsers` / `ego_channels`）上，**普通升级无需重传插件**。
+
+### 卷与数据
+
+| 卷 | 内容 |
+|----|------|
+| `ego_data` | SQLite 数据库（配置的运行时真相源 + 消息日志 / 队列） |
+| `ego_config` | `config/*.json`（导出 / 备份介质） |
+| `ego_parsers` | 你上传的解析器 |
+| `ego_channels` | 你上传的通道插件 |
+| `ego_certs` | 自签名证书（重建容器后浏览器无需再次放行） |
+
+| 操作 | 卷 |
+|------|-----|
+| `docker compose up -d`（含重建容器） | 保留 |
+| `docker compose down` | 保留（named volume 默认不删） |
+| `docker compose down -v` | **全部删除**（含数据库与配置）—— 先备份再做 |
+
+> **从旧版本升级（v1.3.0 → v1.3.1+）是破坏性变更**：旧版把用户插件写在**没有卷**的内置目录里，
+> 容器重建即丢。迁移步骤（含"升级前先导出"）见项目主页 README 的「从旧版本升级」一节。
+
+---
+
 ## 各配置用法
 
 ### 默认 / T1 / T2（自签名 HTTPS）

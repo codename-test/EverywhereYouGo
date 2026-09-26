@@ -10,7 +10,7 @@ from flask import Blueprint, render_template
 
 pages_bp = Blueprint("pages", __name__)
 
-VERSION = "1.3.1"
+VERSION = "1.3.2"
 
 
 def _render(page, title, active_page="", **kwargs):

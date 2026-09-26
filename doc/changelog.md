@@ -4,6 +4,62 @@
 
 ---
 
+## v1.3.2（2026-09-26）
+
+> 本版是 v1.3.1 之后的**边界收口**：不新增大型架构，集中修可靠性、上传 / 恢复边界与文档。
+
+### 备份 / 恢复语义修正（本版最重要）
+
+- **恢复不再被"启动加载"语义吞掉**：`/api/restore` 原先调 `config_manager.load_all()`，
+  而后者在 DB 非空时以 DB 为准把 JSON 反向刷回 —— "恢复配置"实际是 **no-op**
+  （只有插件文件真恢复）。新增 `config_manager.import_from_json()` 做**事务性**「JSON → DB」，
+  restore 改调它。
+- **恢复改为"部分恢复"**：只把备份里**存在**的配置文件写入数据库，未包含的配置**保持原样**
+  （不再被当成"空配置"清空）。并且按 **ZIP 内容**（而非磁盘上有没有文件）决定允许覆盖哪些表 ——
+  后者会把上一轮导出残留的旧 `config/*.json` 误当成备份内容导入。
+  区分：文件被包含且为 `[]` → 清空该表；文件不在备份里 → 该表不动。
+- **清理孤儿绑定**：部分恢复后，指向已消失 source / channel / template 的绑定会被删除
+  （否则路由会持续匹配不存在的对象而反复失败）。
+- **`created_at` 保真**：导入时还原备份里的创建时间（缺失才回落当前时间）。
+- **最终提交做 best-effort 回滚**：替换前备份原文件，中途失败按逆序恢复。
+
+### 恢复 / 上传的校验与边界
+
+- **校验发生在"替换任何文件之前"**：抽出 `_stage_and_validate()`，做文件名安全、JSON 可解析、
+  **JSON 结构合法**（原先只在导入时 `log.warning`，形状错要等 `KeyError` 才炸 —— 那时插件文件
+  已替换完，会留"插件新版、配置没恢复"的半成品）、插件可加载。
+- **dry-run（「预览」）走同一套校验**，只是不落盘；回报 `errors` / `warnings` / `staged`。
+  前端在校验不通过时不再显示"确认恢复"按钮。
+- **上传体积上限**：全局 `MAX_CONTENT_LENGTH`（默认 32MB，`EGO_MAX_UPLOAD_MB` 可调）+ 413 JSON 响应；
+  备份上传另设 `MAX_BACKUP_UPLOAD_SIZE`（20MB，在 `file.read()` **之前**判断）。
+- **同名解析器并发上传**：新增 `plugin_paths.filename_lock()`，把「查重 → 落盘 → 入库」串行化
+  （原先是 TOCTOU：并发时可能出现"磁盘是 B 的内容、DB 是 A 的行"）。
+
+### 插件 metadata
+
+- 插件可声明 `PARSER_EGO_MIN_VERSION` / `CHANNEL_EGO_MIN_VERSION`（可选），
+  `read_source_meta` 读取并在解析器列表接口暴露 `ego_min_version`。
+  **注意**：目前仅为**兼容性声明**，加载器不会据此拒绝加载（暂不做依赖解析）。
+
+### 修掉的真 bug
+
+- **`main.py` 的 `web_ui.source_mgr = mgr` 是死代码**：API 侧读的是 `current_app.source_mgr`
+  （Flask app 的属性），而 `create_app(source_mgr=None)` 已把它定成 `None`。
+  后果：`/api/sources` 的增删改**从不启停监听**（新建带端口的数据源必须重启才生效），
+  restore 的监听重启也是空操作。已补 `web_ui.app.source_mgr = mgr`。
+
+### 文档
+
+- `architecture.md` 同步（真相源 = SQLite、flush/retry 共用 `_send_via_channel()`、
+  Blueprint / 通道 / 测试计数、日期）。
+- README 中英：备份章节补 `channels/*.py`、通道表补 SMTP、恢复语义说明、
+  **升级前请先备份**的提示。
+- 部署文档（`deploy/README.md` / `.en.md`）新增「升级与备份」章节：卷清单、升级命令、
+  以及 `down -v` 会连数据库与配置一起删除的警告。
+- `doc/sdk/{parser,channel}.{zh,en}.md` 新增「插件元数据」章节。
+
+---
+
 ## v1.3.1（已发布）
 
 > 本版聚焦「插件持久化」：用户上传的插件在容器重建后不再丢失。

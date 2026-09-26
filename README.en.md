@@ -1,4 +1,4 @@
-# EverywhereYouGo (EGo) v1.3.1
+# EverywhereYouGo (EGo) v1.3.2
 
 [中文](README.md) | English
 
@@ -83,15 +83,19 @@ System settings (DND, log level, etc.), the message log and the queue are also s
 For backup/restore use **Settings → Backup**, which packages `config/*.json` plus **your uploaded**
 `parsers/*.py` and `channels/*.py`.
 
-**Restore is not the same path as startup loading**: on restore the backup snapshot becomes the
-new source of truth (`config/*.json` → SQLite, unconditional replace — config absent from the
-backup is removed), then plugins are reloaded and every data-source listener is restarted.
+**Restore is not the same path as startup loading**: on restore, config from the backup is
+written to the database (`config/*.json` → SQLite), then plugins are reloaded and every
+data-source listener is restarted.
 
 **Restore is a partial restore**: only config files *present* in the backup are written to the
 database; anything not included is **left unchanged** (not wiped), and a notice listing the missing
 files is returned. A hand-made or truncated ZIP therefore cannot destroy data it never contained.
 To restore a table to empty, ship a file containing `[]` rather than omitting it
 (**file present and `[]` → table cleared; file absent → table untouched**).
+
+> ⚠️ **Back up before upgrading**: export a ZIP via *Settings → Backup* before any version/image
+> upgrade. Backup files contain **full push credentials** (SMTP password / auth code / tokens) —
+> keep them safe.
 
 ## Plugin Directories
 
