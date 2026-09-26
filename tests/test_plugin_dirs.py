@@ -7,6 +7,7 @@
 """
 import sys
 import os
+import contextlib
 import io
 import json
 import zipfile
@@ -28,6 +29,56 @@ def _mk_zip(entries):
             zf.writestr(name, data)
     buf.seek(0)
     return buf
+
+
+_CORE_NAMES = ["config/%s" % fn for fn in __import__("config_manager")._CONFIG_FILES.values()]
+
+
+def _core_config(overrides=None):
+    """5 个核心快照文件的 ZIP 条目（恢复要求齐全，v1.3.2 review #9）。"""
+    entries = {n: b"[]" for n in _CORE_NAMES}
+    if overrides:
+        entries.update(overrides)
+    return entries
+
+
+def _reset_db_conn(dbconn):
+    conn = getattr(dbconn._local, "conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        try:
+            del dbconn._local.conn
+        except AttributeError:
+            pass
+
+
+@contextlib.contextmanager
+def _isolated_restore_env(tmp):
+    """隔离 restore 的运行环境（config 目录 + 数据库）。
+
+    v1.3.2 #8 起 restore 会真正执行「JSON → DB 全量替换」，并写入
+    config_manager.CONFIG_DIR。不隔离的话会污染**真实的** config/ 目录
+    与共享测试库（所有测试文件共用同一个 DB_PATH）。
+    """
+    import config_manager
+    import db.connection as _dbconn
+
+    saved_cfg = config_manager.CONFIG_DIR
+    saved_db = _dbconn.DB_PATH
+    config_manager.CONFIG_DIR = os.path.join(tmp, "config")
+    os.makedirs(config_manager.CONFIG_DIR, exist_ok=True)
+    _reset_db_conn(_dbconn)
+    _dbconn.DB_PATH = os.path.join(tmp, "isolated.db")
+    db.init_db()
+    try:
+        yield
+    finally:
+        _reset_db_conn(_dbconn)
+        _dbconn.DB_PATH = saved_db
+        config_manager.CONFIG_DIR = saved_cfg
 
 
 class _TmpUserDirs:
@@ -251,22 +302,24 @@ class TestBackupRestoreCoversUserPlugins:
         assert "channels/wechat_work_bot.py" not in names
 
     def test_restore_writes_user_dirs_and_skips_builtins(self):
-        z = _mk_zip({
+        z = _mk_zip(_core_config({
             "channels/restored_ch.py": b"class Channel: pass\n",
             "parsers/restored_p.py": b"def parse(b,h,q): return {}\n",
             "parsers/emby.py": b"# stale builtin copy\n",
             "channels/bark.py": b"# stale builtin copy\n",
-        })
-        r = self.client.post("/api/restore", data={"file": (z, "b.zip")},
-                             content_type="multipart/form-data")
-        assert r.status_code == 200, r.data[:300]
-        body = json.loads(r.data)
-        assert os.path.isfile(os.path.join(plugin_paths.user_dir("channel"), "restored_ch.py"))
-        assert os.path.isfile(os.path.join(plugin_paths.user_dir("parser"), "restored_p.py"))
-        # 与内置同名的条目应被跳过，而不是写进用户目录去遮蔽内置
-        assert not os.path.isfile(os.path.join(plugin_paths.user_dir("parser"), "emby.py"))
-        assert not os.path.isfile(os.path.join(plugin_paths.user_dir("channel"), "bark.py"))
-        assert set(body.get("skipped_builtin", [])) == {"emby.py", "bark.py"}
+        }))
+        with _isolated_restore_env(self.d.tmp):
+            r = self.client.post("/api/restore", data={"file": (z, "b.zip")},
+                                 content_type="multipart/form-data")
+            assert r.status_code == 200, r.data[:300]
+            body = json.loads(r.data)
+            assert body["ok"] is True, body
+            assert os.path.isfile(os.path.join(plugin_paths.user_dir("channel"), "restored_ch.py"))
+            assert os.path.isfile(os.path.join(plugin_paths.user_dir("parser"), "restored_p.py"))
+            # 与内置同名的条目应被跳过，而不是写进用户目录去遮蔽内置
+            assert not os.path.isfile(os.path.join(plugin_paths.user_dir("parser"), "emby.py"))
+            assert not os.path.isfile(os.path.join(plugin_paths.user_dir("channel"), "bark.py"))
+            assert set(body.get("skipped_builtin", [])) == {"emby.py", "bark.py"}
 
 
 class TestUpgradeKeepsUserPlugins:
@@ -448,26 +501,26 @@ class TestUpgradeCompatibility:
 
     def test_old_backup_restores_user_plugin_and_skips_builtin_copy(self):
         """旧版备份会把内置解析器一起打进去 —— 恢复时不能让它遮蔽新版内置。"""
-        z = _mk_zip({
-            "config/parsers.json": b"[]",
+        z = _mk_zip(_core_config({
             "parsers/emby.py": "# 旧版打包进来的内置副本\n".encode("utf-8"),
             "parsers/legacy_user.py": b"def parse(b,h,q): return {}\n",
             "channels/legacy_ch.py": b"class Channel: pass\n",
-        })
-        r = self.client.post("/api/restore", data={"file": (z, "old.zip")},
-                             content_type="multipart/form-data")
-        assert r.status_code == 200, r.data[:300]
+        }))
+        with _isolated_restore_env(self.d.tmp):
+            r = self.client.post("/api/restore", data={"file": (z, "old.zip")},
+                                 content_type="multipart/form-data")
+            assert r.status_code == 200, r.data[:300]
 
-        user_parsers = plugin_paths.user_dir("parser")
-        assert os.path.isfile(os.path.join(user_parsers, "legacy_user.py")), \
-            "旧备份里的用户插件应落到用户目录"
-        assert os.path.isfile(os.path.join(plugin_paths.user_dir("channel"), "legacy_ch.py"))
-        assert not os.path.isfile(os.path.join(user_parsers, "emby.py")), \
-            "内置副本不该写进用户目录"
-        assert json.loads(r.data).get("skipped_builtin") == ["emby.py"]
+            user_parsers = plugin_paths.user_dir("parser")
+            assert os.path.isfile(os.path.join(user_parsers, "legacy_user.py")), \
+                "旧备份里的用户插件应落到用户目录"
+            assert os.path.isfile(os.path.join(plugin_paths.user_dir("channel"), "legacy_ch.py"))
+            assert not os.path.isfile(os.path.join(user_parsers, "emby.py")), \
+                "内置副本不该写进用户目录"
+            assert json.loads(r.data).get("skipped_builtin") == ["emby.py"]
 
     def test_restore_result_lists_channels(self):
-        z = _mk_zip({"channels/x.py": b"class Channel: pass\n"})
+        z = _mk_zip(_core_config({"channels/x.py": b"class Channel: pass\n"}))
         r = self.client.post("/api/restore?dry_run=1", data={"file": (z, "b.zip")},
                              content_type="multipart/form-data")
         body = json.loads(r.data)

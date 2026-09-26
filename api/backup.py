@@ -11,6 +11,7 @@ import zipfile
 import datetime as _dt
 
 import db
+import config_manager
 import parser_loader
 import channel_loader
 import i18n
@@ -174,6 +175,106 @@ def api_backup():
                     headers={"Content-Disposition": "attachment; filename=ego_backup.zip"})
 
 
+# ── 恢复校验（v1.3.2 review #9 / #10）────────────────────────────
+
+
+def _core_config_entries():
+    """核心快照文件在 ZIP 里的路径（config/*.json），取自 config_manager。
+
+    只要求"已知的这几个"存在，**不限制** ZIP 里有多余文件 ——
+    将来若新增配置文件，旧 ZIP 仍可恢复（向前兼容）。
+    """
+    from config_manager import _CONFIG_FILES
+    return ["config/%s" % fn for fn in _CONFIG_FILES.values()]
+
+
+def _missing_core_files(zf_names):
+    """返回 ZIP 里缺失的核心快照文件列表（空列表 = 完整）。
+
+    恢复语义是"完整快照替换"：不在备份里的表会被清空。
+    因此缺核心文件的 ZIP 必须直接拒绝 —— 否则用户手搓/截断的包
+    会静默清空 parsers / sources / bindings。
+    """
+    present = set(zf_names)
+    return [n for n in _core_config_entries() if n not in present]
+
+
+def _stage_and_validate(zf, config_files, parser_files, channel_files, tmp_root):
+    """把 ZIP 内容落到临时目录并逐项校验。**不写任何最终位置**。
+
+    返回 (staged, errors, skipped_builtin, restored)。
+    校验覆盖：
+      - 文件名安全（防路径穿越，#22）
+      - 配置 JSON 可解析 + **结构合法**（list 形状 / 必需字段）
+      - 插件可加载（parser 语法 / channel 可实例化）
+    """
+    from config_manager import CONFIG_DIR, _CONFIG_FILES
+
+    fname_to_key = {fn: key for key, fn in _CONFIG_FILES.items()}
+    errors = []
+    staged = []
+    skipped_builtin = []
+    restored = {"parser": [], "channel": []}
+
+    # 配置 JSON：写临时 + 解析 + 结构校验
+    for name in config_files:
+        if not name.endswith(".json"):
+            continue
+        fname = os.path.basename(name[len("config/"):])
+        if not _safe_filename(fname):
+            errors.append(f"config/{fname}: 非法文件名")
+            continue
+        tpath = os.path.join(tmp_root, "config", fname)
+        with open(tpath, "wb") as f:
+            f.write(zf.read(name))
+        try:
+            with open(tpath, "r", encoding="utf-8") as f:
+                data = json.loads(f.read())
+        except Exception as e:
+            errors.append(f"config/{fname}: JSON 解析失败 {str(e)[:100]}")
+            continue
+        # 结构校验（review #9）：原先只在导入时 log.warning —— 形状错了要等
+        # 导入阶段 KeyError 才炸，而那时**插件文件已经替换完了**，会留半成品。
+        key = fname_to_key.get(fname)
+        if key:
+            verrs = config_manager._validate_config(key, data)
+            if verrs:
+                errors.append(f"config/{fname}: " + "; ".join(verrs[:3]))
+                continue
+        staged.append((tpath, os.path.join(CONFIG_DIR, fname), fname, "config"))
+
+    # 插件：写临时 + 校验可加载；与内置同名条目跳过（内置随镜像更新）
+    plugin_paths.ensure_user_dirs()
+    for names, kind, prefix in ((parser_files, "parser", "parsers/"),
+                                (channel_files, "channel", "channels/")):
+        kind_dir = kind + "s"
+        udir = plugin_paths.user_dir(kind)
+        for name in names:
+            if not name.endswith(".py"):
+                continue
+            fname = os.path.basename(name[len(prefix):])
+            if not _safe_filename(fname):
+                errors.append(f"{kind}/{fname}: 非法文件名")
+                continue
+            if plugin_paths.is_builtin(kind, fname):
+                skipped_builtin.append(fname)
+                continue
+            tpath = os.path.join(tmp_root, kind_dir, fname)
+            with open(tpath, "wb") as f:
+                f.write(zf.read(name))
+            if kind == "parser":
+                err = parser_loader.validate_parser(tpath)
+            else:
+                err = channel_loader.validate_channel(tpath)
+            if err:
+                errors.append(f"{kind}/{fname}: {err[:120]}")
+                continue
+            staged.append((tpath, os.path.join(udir, fname), fname, kind))
+            restored[kind].append(fname)
+
+    return staged, errors, skipped_builtin, restored
+
+
 @backup_bp.route("/api/restore", methods=["POST"])
 def api_restore():
     from config_manager import CONFIG_DIR
@@ -196,23 +297,35 @@ def api_restore():
     except Exception as e:
         return jsonify({"ok": False, "error": f"{i18n._('err.zip_parse_fail')} {e}"})
 
-    config_files = [n for n in zf.namelist() if n.startswith("config/")]
-    parser_files = [n for n in zf.namelist() if n.startswith("parsers/")]
-    channel_files = [n for n in zf.namelist() if n.startswith("channels/")]
+    names = zf.namelist()
+    config_files = [n for n in names if n.startswith("config/")]
+    parser_files = [n for n in names if n.startswith("parsers/")]
+    channel_files = [n for n in names if n.startswith("channels/")]
 
     result = {"ok": True, "dry_run": dry_run, "config": config_files,
               "parsers": parser_files, "channels": channel_files}
 
-    if dry_run:
-        return jsonify(result)
+    # dry-run 不再"读个文件名就返回"：它走**同一套**校验（体积 + 完整性 +
+    # JSON 结构 + 插件可加载），只是不落最终位置 —— 这样 WebUI 的"预览"
+    # 才能真正回答"这个备份能不能恢复"（v1.3.2 review #10）。
+    errors = []
 
-    # 防 ZIP 炸弹：累计未压缩大小，超过上限即拒绝（#32）
+    # 1) 完整性（v1.3.2 review #9）
+    missing = _missing_core_files(names)
+    if missing:
+        errors.append(i18n._("err.restore_incomplete")
+                      .replace("{files}", ", ".join(missing)))
+
+    # 2) 防 ZIP 炸弹：累计未压缩大小，超过上限即拒绝（#32）
     total_size = 0
     for name in config_files + parser_files + channel_files:
         total_size += zf.getinfo(name).file_size
         if total_size > MAX_RESTORE_SIZE:
             zf.close()
-            return jsonify({"ok": False, "error": i18n._("err.restore_too_large")})
+            errors.append(i18n._("err.restore_too_large"))
+            result.update({"ok": False, "errors": errors,
+                           "error": i18n._("err.restore_too_large")})
+            return jsonify(result)
 
     # ── 原子恢复（#9）：全量落临时目录 + 校验，全通过才统一替换；
     # 任一失败 → 原文件不动，无半成功 ──
@@ -220,63 +333,30 @@ def api_restore():
     for d in ("config", "parsers", "channels"):
         os.makedirs(os.path.join(tmp_root, d), exist_ok=True)
     try:
-        errors = []
-        staged = []
-        skipped_builtin = []
-        restored = {"parser": [], "channel": []}
+        staged, stage_errors, skipped_builtin, restored = _stage_and_validate(
+            zf, config_files, parser_files, channel_files, tmp_root)
+        zf.close()
 
-        # 配置 JSON：写临时 + 校验可解析
-        for name in config_files:
-            if not name.endswith(".json"):
-                continue
-            fname = os.path.basename(name[len("config/"):])
-            if not _safe_filename(fname):
-                errors.append(f"config/{fname}: 非法文件名")
-                continue
-            tpath = os.path.join(tmp_root, "config", fname)
-            with open(tpath, "wb") as f:
-                f.write(zf.read(name))
-            try:
-                with open(tpath, "r", encoding="utf-8") as f:
-                    json.loads(f.read())
-            except Exception as e:
-                errors.append(f"config/{fname}: JSON 解析失败 {str(e)[:100]}")
-                continue
-            staged.append((tpath, os.path.join(CONFIG_DIR, fname), fname, "config"))
+        if skipped_builtin:
+            result["skipped_builtin"] = skipped_builtin
 
-        # 插件：写临时 + 校验可加载；与内置同名条目跳过（内置随镜像更新）
-        plugin_paths.ensure_user_dirs()
-        for names, kind, prefix in ((parser_files, "parser", "parsers/"),
-                                    (channel_files, "channel", "channels/")):
-            kind_dir = kind + "s"
-            udir = plugin_paths.user_dir(kind)
-            for name in names:
-                if not name.endswith(".py"):
-                    continue
-                fname = os.path.basename(name[len(prefix):])
-                if not _safe_filename(fname):
-                    errors.append(f"{kind}/{fname}: 非法文件名")
-                    continue
-                if plugin_paths.is_builtin(kind, fname):
-                    skipped_builtin.append(fname)
-                    continue
-                tpath = os.path.join(tmp_root, kind_dir, fname)
-                with open(tpath, "wb") as f:
-                    f.write(zf.read(name))
-                if kind == "parser":
-                    err = parser_loader.validate_parser(tpath)
-                else:
-                    err = channel_loader.validate_channel(tpath)
-                if err:
-                    errors.append(f"{kind}/{fname}: {err[:120]}")
-                    continue
-                staged.append((tpath, os.path.join(udir, fname), fname, kind))
-                restored[kind].append(fname)
+        if errors or stage_errors:
+            errors.extend(stage_errors)
+            result.update({"ok": False, "errors": errors,
+                           "error": i18n._("err.restore_validate_failed")
+                           + " " + "; ".join(errors[:3])})
+            log.logger.warning(f"[Restore] validation failed, nothing written: {errors[:5]}")
+            return jsonify(result)
 
-        if errors:
-            zf.close()
-            return jsonify({"ok": False,
-                            "error": "恢复校验失败，未修改任何文件: " + "; ".join(errors[:3])})
+        if dry_run:
+            # 校验全通过 → 告诉前端"可以恢复"，并回报将要写入的文件
+            result["staged"] = {
+                "config": [f for _t, _fn, f, k in staged if k == "config"],
+                "parser": restored["parser"],
+                "channel": restored["channel"],
+            }
+            result["errors"] = []
+            return jsonify(result)
 
         # 全通过 → 统一原子替换到最终位置。
         # 说明：校验阶段是"全原子"的；提交阶段是逐文件 os.replace()，
@@ -324,10 +404,7 @@ def api_restore():
                     pass
 
         if skipped_builtin:
-            result["skipped_builtin"] = skipped_builtin
             log.logger.info(f"Restore: skipped built-in plugin(s): {skipped_builtin}")
-
-        zf.close()
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)
 

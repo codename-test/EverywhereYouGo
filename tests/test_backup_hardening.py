@@ -16,6 +16,8 @@ os.environ["DB_PATH"] = os.path.join(tempfile.mkdtemp(), "test_backup.db")
 import db
 db.init_db()
 
+import config_manager
+
 from api.backup import _safe_filename
 from api import create_app
 
@@ -52,6 +54,20 @@ def _make_zip(entries):
             zf.writestr(name, data)
     buf.seek(0)
     return buf
+
+
+_CORE_NAMES = ["config/%s" % fn for fn in config_manager._CONFIG_FILES.values()]
+
+
+def _core_config(overrides=None):
+    """5 个核心快照文件的 ZIP 条目（恢复要求齐全，v1.3.2 review #9）。
+
+    默认每个文件 b"[]"（空表）；overrides 用 "config/xxx.json" → bytes 覆盖。
+    """
+    entries = {n: b"[]" for n in _CORE_NAMES}
+    if overrides:
+        entries.update(overrides)
+    return entries
 
 
 def _use_temp_db(tmp_dir):
@@ -134,10 +150,10 @@ class TestRestore:
     def test_traversal_is_flattened(self, monkeypatch):
         """恶意条目 'config/../../evil.json' 只能被压平写入 config 目录，无法逃逸。"""
         self._patch_dirs(monkeypatch)
-        zip_buf = _make_zip({
+        zip_buf = _make_zip(_core_config({
             "config/../../evil.json": b"[]",
             "config/ok.json": b"[]",
-        })
+        }))
         resp = self.client.post(
             "/api/restore",
             data={"file": (zip_buf, "b.zip")},
@@ -172,10 +188,10 @@ class TestRestore:
     def test_normal_restore_ok(self, monkeypatch):
         """合法扁平备份正常恢复。"""
         self._patch_dirs(monkeypatch)
-        zip_buf = _make_zip({
+        zip_buf = _make_zip(_core_config({
             "config/channels.json": b"[]",
             "parsers/myparser.py": b"def parse(b, h, q):\n    return {'v': 'ok'}\n",
-        })
+        }))
         resp = self.client.post(
             "/api/restore",
             data={"file": (zip_buf, "b.zip")},
@@ -240,8 +256,8 @@ class TestRestore:
         # 备份：channels.json 里是一个不同的通道
         backup_channels = [{"id": 77, "name": "from-backup",
                             "type": "wechat_work_bot", "config": "{}", "enabled": 1}]
-        zip_buf = _make_zip({"config/channels.json":
-                             json.dumps(backup_channels).encode("utf-8")})
+        zip_buf = _make_zip(_core_config({
+            "config/channels.json": json.dumps(backup_channels).encode("utf-8")}))
         resp = self.client.post("/api/restore",
                                 data={"file": (zip_buf, "b.zip")},
                                 content_type="multipart/form-data")
@@ -272,7 +288,7 @@ class TestRestore:
         app = create_app(source_mgr=_FakeSM())
         app.config["TESTING"] = True
         client = app.test_client()
-        zip_buf = _make_zip({"config/channels.json": b"[]"})
+        zip_buf = _make_zip(_core_config())
         resp = client.post("/api/restore",
                            data={"file": (zip_buf, "b.zip")},
                            content_type="multipart/form-data")
@@ -292,8 +308,8 @@ class TestRestore:
         stamp = "2020-01-02 03:04:05"
         backup = [{"id": 7, "name": "c7", "type": "wechat_work_bot",
                    "config": "{}", "enabled": 1, "created_at": stamp}]
-        zip_buf = _make_zip({"config/channels.json":
-                             json.dumps(backup).encode("utf-8")})
+        zip_buf = _make_zip(_core_config({
+            "config/channels.json": json.dumps(backup).encode("utf-8")}))
         resp = self.client.post("/api/restore",
                                 data={"file": (zip_buf, "b.zip")},
                                 content_type="multipart/form-data")
@@ -304,14 +320,97 @@ class TestRestore:
         # 老备份缺 created_at → 回落 CURRENT_TIMESTAMP，不报错
         legacy = [{"id": 8, "name": "c8", "type": "wechat_work_bot",
                    "config": "{}", "enabled": 1}]
-        zip2 = _make_zip({"config/channels.json":
-                          json.dumps(legacy).encode("utf-8")})
+        zip2 = _make_zip(_core_config({
+            "config/channels.json": json.dumps(legacy).encode("utf-8")}))
         resp2 = self.client.post("/api/restore",
                                  data={"file": (zip2, "b.zip")},
                                  content_type="multipart/form-data")
         assert resp2.get_json()["ok"] is True
         rows2 = {c["name"]: c for c in _db.get_channels()}
         assert rows2["c8"]["created_at"], "缺字段应回落 CURRENT_TIMESTAMP"
+
+    def test_incomplete_backup_rejected(self, monkeypatch):
+        """#9: 缺核心配置文件的 ZIP 必须拒绝，不能静默清空那几张表。
+
+        触发场景：用户手搓/截断的 ZIP 只带了 channels.json + templates.json。
+        旧行为是"缺失 = 空配置"，会把 parsers / sources / bindings 全清掉。
+        """
+        import db as _db
+        self._patch_dirs(monkeypatch)
+        _db.create_channel("keep-me", "wechat_work_bot", "{}", 1)
+
+        partial = _core_config()
+        for missing in ("config/parsers.json", "config/sources.json",
+                        "config/bindings.json"):
+            del partial[missing]
+        resp = self.client.post("/api/restore",
+                                data={"file": (_make_zip(partial), "b.zip")},
+                                content_type="multipart/form-data")
+        data = resp.get_json()
+        assert data["ok"] is False, data
+        assert any("不完整" in e for e in data["errors"]), data
+        # 关键：现有配置一个都没少
+        assert [c["name"] for c in _db.get_channels()] == ["keep-me"],             "不完整备份不应改动任何配置"
+
+    def test_incomplete_backup_rejected_in_dry_run(self, monkeypatch):
+        """#10: dry-run 也做完整性校验 —— 点"确认恢复"之前就能发现。"""
+        self._patch_dirs(monkeypatch)
+        partial = _core_config()
+        del partial["config/sources.json"]
+        resp = self.client.post("/api/restore?dry_run=1",
+                                data={"file": (_make_zip(partial), "b.zip")},
+                                content_type="multipart/form-data")
+        data = resp.get_json()
+        assert data["dry_run"] is True
+        assert data["ok"] is False, data
+        assert any("sources.json" in e for e in data["errors"]), data
+
+    def test_dry_run_validates_without_writing(self, monkeypatch):
+        """#10: dry-run 做真实校验（含插件可加载），但一个字节都不写。"""
+        self._patch_dirs(monkeypatch)
+        NL = chr(10)
+        bad = "def parse(b, h, q):" + NL + "    return {  # unclosed"
+        payload = _core_config({"parsers/bad.py": bad.encode("utf-8")})
+        resp = self.client.post("/api/restore?dry_run=1",
+                                data={"file": (_make_zip(payload), "b.zip")},
+                                content_type="multipart/form-data")
+        data = resp.get_json()
+        assert data["ok"] is False, data
+        assert any("bad.py" in e for e in data["errors"]), data
+        assert not os.path.isfile(os.path.join(self.parsers_dir, "bad.py"))
+
+    def test_dry_run_ok_reports_staged(self, monkeypatch):
+        """#10: 校验通过时 dry-run 回报将要写入的文件，errors 为空。"""
+        self._patch_dirs(monkeypatch)
+        resp = self.client.post("/api/restore?dry_run=1",
+                                data={"file": (_make_zip(_core_config()), "b.zip")},
+                                content_type="multipart/form-data")
+        data = resp.get_json()
+        assert data["ok"] is True, data
+        assert data["errors"] == [], data
+        assert set(data["staged"]["config"]) == {
+            "parsers.json", "sources.json", "channels.json",
+            "templates.json", "bindings.json"}, data["staged"]
+
+    def test_bad_json_shape_rejected_at_staging(self, monkeypatch):
+        """#9: 配置结构非法要在**替换文件之前**拒绝。
+
+        旧实现只在导入时 log.warning，形状错要等 KeyError 才炸 ——
+        而那时插件文件已经替换完了，会留下"插件是新版、配置没恢复"的半成品。
+        """
+        self._patch_dirs(monkeypatch)
+        NL = chr(10)
+        ok_src = ("def parse(b, h, q):" + NL + "    return {'v': 'x'}" + NL).encode()
+        # channels.json 是 dict 而非 list
+        payload = _core_config({"config/channels.json": b'{"a": 1}',
+                                "parsers/ok.py": ok_src})
+        resp = self.client.post("/api/restore",
+                                data={"file": (_make_zip(payload), "b.zip")},
+                                content_type="multipart/form-data")
+        data = resp.get_json()
+        assert data["ok"] is False, data
+        assert any("channels.json" in e for e in data["errors"]), data
+        assert not os.path.isfile(os.path.join(self.parsers_dir, "ok.py")),             "结构校验失败时不应写入任何插件文件"
 
     def test_oversized_upload_rejected_413(self):
         """#11: 超过 MAX_CONTENT_LENGTH 的上传在 HTTP 层被拒（413），不进入视图。"""
@@ -382,7 +481,10 @@ class TestRestoreReload:
 
     def _restore(self, monkeypatch, entries):
         self._patch_dirs(monkeypatch)
-        buf = self._make_zip(entries)
+        # 恢复要求核心快照文件齐全（review #9），测试默认补齐
+        full = _core_config()
+        full.update(entries)
+        buf = self._make_zip(full)
         resp = self.client.post(
             "/api/restore", data={"file": (buf, "b.zip")},
             content_type="multipart/form-data")

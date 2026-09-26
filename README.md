@@ -84,6 +84,11 @@ EGO_AUTH_TOKEN=your-secret-token python3 main.py
 （`config/*.json` → SQLite 无条件覆盖，未出现在备份里的配置会被移除），
 随后重载插件并重启各数据源监听。
 
+**恢复要求备份完整**：ZIP 必须含全部 5 个核心配置文件
+（`parsers` / `sources` / `channels` / `templates` / `bindings`），缺任何一个都直接拒绝。
+这是为了防止"手搓/截断的 ZIP 让缺失文件被当成空配置、把数据静默清空"。
+需要把某张表恢复成空，请在 ZIP 里放一个内容为 `[]` 的文件，而不是删掉它。
+
 ## 插件目录
 
 内置插件与用户上传的插件**分开放**：
@@ -184,7 +189,10 @@ def parse(raw_body: bytes, headers: dict, query_params: dict) -> dict:
 
 ### 导入导出
 - **备份**：下载 ZIP 包（`config/*.json` + `parsers/*.py` + `channels/*.py`）
-- **恢复**：上传 ZIP 包，**配置以备份为准写入数据库**（JSON → DB 全量替换），插件文件同步恢复并热重载
+- **恢复**：上传 ZIP 包，**配置以备份为准写入数据库**（JSON → DB 全量替换），插件文件同步恢复并热重载。
+  要求 ZIP 含全部 5 个核心配置文件，缺一即拒绝（原配置一个字节都不动）
+- **预览**：点「预览」会先跑一遍与真实恢复**相同**的校验（体积 / 完整性 / JSON 结构 / 插件可加载），
+  校验不通过时不会给出"确认恢复"按钮
 - **JSON 导入**：支持 dry_run 预览、insert/overwrite 两种模式、依赖检查
 
 > **安全提示**
