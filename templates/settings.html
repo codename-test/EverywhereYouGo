@@ -205,6 +205,17 @@ function renderDiff(data) {
   (data.channels||[]).forEach(function(f) { html += '<tr><td>' + t("set.diff_channel") + '</td><td><code>' + f + '</code></td></tr>'; });
   html += '</tbody></table>';
 
+  if (data.warnings && data.warnings.length) {
+    html += '<div class="alert alert-warning"><strong>' + t("set.restore_warn") + '</strong><ul>';
+    data.warnings.forEach(function(w) { html += '<li>' + w + '</li>'; });
+    html += '</ul></div>';
+  }
+
+  if (data.config_skipped && data.config_skipped.length) {
+    html += '<p class="text-muted small">' + t("set.restore_skipped") + ': <code>' +
+            data.config_skipped.join(', ') + '</code></p>';
+  }
+
   if (data.errors && data.errors.length) {
     html += '<div class="alert alert-danger"><strong>' + t("set.diff_error") + '</strong><ul>';
     data.errors.forEach(function(e) { html += '<li>' + e + '</li>'; });

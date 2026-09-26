@@ -191,9 +191,8 @@ def _core_config_entries():
 def _missing_core_files(zf_names):
     """返回 ZIP 里缺失的核心快照文件列表（空列表 = 完整）。
 
-    恢复语义是"完整快照替换"：不在备份里的表会被清空。
-    因此缺核心文件的 ZIP 必须直接拒绝 —— 否则用户手搓/截断的包
-    会静默清空 parsers / sources / bindings。
+    缺文件**不拒绝**，只提示：备份里有什么就恢复什么，未包含的表保持原样
+    （由 config_manager.import_from_json 保证"没文件就不动那张表"）。
     """
     present = set(zf_names)
     return [n for n in _core_config_entries() if n not in present]
@@ -303,18 +302,21 @@ def api_restore():
     channel_files = [n for n in names if n.startswith("channels/")]
 
     result = {"ok": True, "dry_run": dry_run, "config": config_files,
-              "parsers": parser_files, "channels": channel_files}
+              "parsers": parser_files, "channels": channel_files,
+              "warnings": []}
 
     # dry-run 不再"读个文件名就返回"：它走**同一套**校验（体积 + 完整性 +
     # JSON 结构 + 插件可加载），只是不落最终位置 —— 这样 WebUI 的"预览"
     # 才能真正回答"这个备份能不能恢复"（v1.3.2 review #10）。
     errors = []
 
-    # 1) 完整性（v1.3.2 review #9）
+    # 1) 完整性**提示**（v1.3.2 review #9）：缺核心配置文件不拒绝。
+    #    备份里有什么就恢复什么；未包含的表保持原样
+    #    （"没文件就不动那张表"由 config_manager.import_from_json 保证）。
     missing = _missing_core_files(names)
     if missing:
-        errors.append(i18n._("err.restore_incomplete")
-                      .replace("{files}", ", ".join(missing)))
+        result["warnings"].append(
+            i18n._("warn.restore_partial").replace("{files}", ", ".join(missing)))
 
     # 2) 防 ZIP 炸弹：累计未压缩大小，超过上限即拒绝（#32）
     total_size = 0
@@ -349,7 +351,8 @@ def api_restore():
             return jsonify(result)
 
         if dry_run:
-            # 校验全通过 → 告诉前端"可以恢复"，并回报将要写入的文件
+            # 校验通过 → 告诉前端"可以恢复"，并回报将要写入的文件
+            # （warnings 已在 result 里，前端会展示"部分是部分恢复"的提示）
             result["staged"] = {
                 "config": [f for _t, _fn, f, k in staged if k == "config"],
                 "parser": restored["parser"],
@@ -414,7 +417,17 @@ def api_restore():
     # 会把刚恢复的配置覆盖掉，使"配置恢复"变成 no-op。 ──
     try:
         import config_manager
-        result["config_imported"] = config_manager.import_from_json()
+        # 只允许覆盖**备份里确实带了**的配置文件对应的表。
+        # 不能按"磁盘上有没有"判断 —— config/ 目录里通常已经有上一轮导出的
+        # 旧文件，会把陈旧内容当成备份内容导入（实测踩到过）。
+        from config_manager import _CONFIG_FILES
+        in_zip = {os.path.basename(n) for n in config_files}
+        present_keys = [k for k, fn in _CONFIG_FILES.items() if fn in in_zip]
+        counts, skipped_tables = config_manager.import_from_json(only=present_keys)
+        result["config_imported"] = counts
+        if skipped_tables:
+            # 备份未包含这些配置 → 对应的表原样保留（已在 warnings 里提示）
+            result["config_skipped"] = skipped_tables
         # 备份可能来自更旧版本，内置解析器随镜像新增；重跑幂等登记，
         # 避免恢复旧备份后 parsers 表丢了新内置解析器。
         try:

@@ -87,11 +87,11 @@ For backup/restore use **Settings → Backup**, which packages `config/*.json` p
 new source of truth (`config/*.json` → SQLite, unconditional replace — config absent from the
 backup is removed), then plugins are reloaded and every data-source listener is restarted.
 
-**Restore requires a complete backup**: the ZIP must contain all 5 core config files
-(`parsers` / `sources` / `channels` / `templates` / `bindings`); if any is missing the restore is
-rejected outright. This prevents a hand-made/truncated ZIP from having its missing files treated as
-"empty config" and silently wiping your data. To restore a table to empty, ship a file containing
-`[]` rather than omitting it.
+**Restore is a partial restore**: only config files *present* in the backup are written to the
+database; anything not included is **left unchanged** (not wiped), and a notice listing the missing
+files is returned. A hand-made or truncated ZIP therefore cannot destroy data it never contained.
+To restore a table to empty, ship a file containing `[]` rather than omitting it
+(**file present and `[]` → table cleared; file absent → table untouched**).
 
 ## Plugin Directories
 
@@ -200,7 +200,7 @@ not pushed a second time. Use `scope=all` to force a full re-push.
 
 ### Import & Export
 - **Backup**: Download ZIP package (`config/*.json` + `parsers/*.py` + `channels/*.py`)
-- **Restore**: Upload ZIP package; the backup **becomes the config source of truth** (JSON → DB full replace), plugin files are restored and hot-reloaded. All 5 core config files must be present, or the restore is rejected (existing config untouched)
+- **Restore**: Upload ZIP package; config from the backup is written to the database (JSON → DB), plugin files are restored and hot-reloaded. Config not included in the backup is left unchanged, with a notice listing the missing files
 - **Preview**: runs the **same** validation as a real restore (size / completeness / JSON shape / plugin loadability); the "confirm restore" button only appears when it passes
 - **JSON Import**: Supports dry_run preview, insert/overwrite two modes, dependency check
 

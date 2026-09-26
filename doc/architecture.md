@@ -135,7 +135,9 @@ RECEIVED → PARSED → SENDING → SUCCESS / FAILED
 - `config_manager.py` — UI 编辑即时同步到 JSON；启动时 `load_all()` 仅当 DB 为空才从 JSON 导入，DB 非空则以 DB 为准回刷 JSON；备份恢复走 `import_from_json()`（JSON → DB 无条件覆盖）
 - 文件锁：`fcntl.flock`（读 LOCK_SH / 写 LOCK_EX），防并发写损坏
 - Schema 校验：5 类配置加载时校验必需字段，格式错误记日志告警
-- 恢复校验（Restore）：ZIP 必须含全部 5 个核心配置文件（缺一即拒绝），并在**替换任何文件之前**完成体积 / JSON 结构 / 插件可加载校验；
+- 恢复是**部分恢复**：`import_from_json()` 只处理备份里**存在**的 JSON（缺文件的表原样保留，不
+  清空），并清理指向已消失 source/channel/template 的孤儿绑定；缺核心文件只**提示**不拒绝
+- 恢复校验在**替换任何文件之前**完成（体积 / JSON 结构 / 插件可加载）；
   dry-run（「预览」）走同一套校验，只是不落盘
 - 注意：日常改配置请用 WebUI（改完即时生效）。`load_all()` 在 DB 非空时**不会**用 JSON 覆盖 DB；直接编辑 `config/*.json` 只在 DB 为空（首次导入）时生效
 
@@ -239,7 +241,7 @@ EverywhereYouGo/
 ├── channels_builtin/      # 7 种内置通道（另 channels/ 为用户目录）
 ├── parsers/               # 用户自定义解析器
 ├── templates/             # HTML 前端模板
-├── tests/                 # 自动化测试（330 个）
+├── tests/                 # 自动化测试（332 个）
 ├── config/                # JSON 配置文件
 │
 ├── config_manager.py      # JSON ↔ SQLite 同步（文件锁 + Schema）

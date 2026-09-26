@@ -329,31 +329,72 @@ class TestRestore:
         rows2 = {c["name"]: c for c in _db.get_channels()}
         assert rows2["c8"]["created_at"], "缺字段应回落 CURRENT_TIMESTAMP"
 
-    def test_incomplete_backup_rejected(self, monkeypatch):
-        """#9: 缺核心配置文件的 ZIP 必须拒绝，不能静默清空那几张表。
+    def test_incomplete_backup_restores_partial(self, monkeypatch):
+        """#9: 缺核心文件的 ZIP **不拒绝** —— 有什么恢复什么，未包含的表保持原样。
 
         触发场景：用户手搓/截断的 ZIP 只带了 channels.json + templates.json。
         旧行为是"缺失 = 空配置"，会把 parsers / sources / bindings 全清掉。
         """
         import db as _db
         self._patch_dirs(monkeypatch)
-        _db.create_channel("keep-me", "wechat_work_bot", "{}", 1)
+        _db.create_channel("db-only", "wechat_work_bot", "{}", 1)
+        assert _db.create_source("keep-src", 25999, None, 1), "前置条件：建源失败"
 
-        partial = _core_config()
+        # 备份只含 channels.json（+ 默认的 templates.json 等被删掉）
+        backup_channels = [{"id": 77, "name": "from-backup",
+                            "type": "wechat_work_bot", "config": "{}", "enabled": 1}]
+        partial = _core_config({
+            "config/channels.json": json.dumps(backup_channels).encode("utf-8")})
         for missing in ("config/parsers.json", "config/sources.json",
                         "config/bindings.json"):
             del partial[missing]
+
         resp = self.client.post("/api/restore",
                                 data={"file": (_make_zip(partial), "b.zip")},
                                 content_type="multipart/form-data")
         data = resp.get_json()
-        assert data["ok"] is False, data
-        assert any("不完整" in e for e in data["errors"]), data
-        # 关键：现有配置一个都没少
-        assert [c["name"] for c in _db.get_channels()] == ["keep-me"],             "不完整备份不应改动任何配置"
+        assert data["ok"] is True, data
+        # 有提示，且指明未包含的文件
+        assert data["warnings"], data
+        assert any("sources.json" in w for w in data["warnings"]), data
+        assert set(data["config_skipped"]) == {"parsers", "sources", "bindings"}, data
 
-    def test_incomplete_backup_rejected_in_dry_run(self, monkeypatch):
-        """#10: dry-run 也做完整性校验 —— 点"确认恢复"之前就能发现。"""
+        # 备份里有的 → 按备份替换
+        assert [c["name"] for c in _db.get_channels()] == ["from-backup"]
+        # 备份里没有的 → 原样保留，没有被清空
+        assert [x["name"] for x in _db.get_sources()] == ["keep-src"],             "未包含在备份里的表不应被清空"
+
+    def test_partial_restore_ignores_stale_on_disk_file(self, monkeypatch):
+        """缺文件必须按 **ZIP 内容**判断，不能按磁盘上有没有。
+
+        config/ 目录里通常已经存在上一轮导出留下的 parsers.json（陈旧）。
+        若按磁盘判断，ZIP 没带 parsers.json 也会被当成"带了"→ 把陈旧内容导入。
+        """
+        import db as _db
+        self._patch_dirs(monkeypatch)
+        # 磁盘上放一个陈旧的 parsers.json（模拟上一轮的导出残留）
+        with open(os.path.join(self.config_dir, "parsers.json"),
+                  "w", encoding="utf-8") as f:
+            json.dump([{"id": 1, "name": "stale", "filename": "stale.py"}], f)
+        _db.create_parser("real", "real.py", "")
+
+        partial = _core_config()
+        del partial["config/parsers.json"]          # ZIP 不含 parsers.json
+        resp = self.client.post("/api/restore",
+                                data={"file": (_make_zip(partial), "b.zip")},
+                                content_type="multipart/form-data")
+        data = resp.get_json()
+        assert data["ok"] is True, data
+        assert "parsers" in data["config_skipped"], data
+        assert "parsers" not in data["config_imported"], data
+        # parsers 表保持原样，没被磁盘上的陈旧文件覆盖
+        names = [x["filename"] for x in _db.get_parsers()]
+        assert "real.py" in names, names
+        assert "stale.py" not in names, \
+            "磁盘上的陈旧 parsers.json 不应被导入：%s" % names
+
+    def test_incomplete_backup_warns_in_dry_run(self, monkeypatch):
+        """#10: dry-run 也提示备份不完整（但仍说"可以恢复"）。"""
         self._patch_dirs(monkeypatch)
         partial = _core_config()
         del partial["config/sources.json"]
@@ -362,8 +403,29 @@ class TestRestore:
                                 content_type="multipart/form-data")
         data = resp.get_json()
         assert data["dry_run"] is True
-        assert data["ok"] is False, data
-        assert any("sources.json" in e for e in data["errors"]), data
+        assert data["ok"] is True, data
+        assert any("sources.json" in w for w in data["warnings"]), data
+        assert data["errors"] == [], data
+
+    def test_partial_restore_prunes_dangling_bindings(self, monkeypatch):
+        """部分恢复后，指向已消失对象的绑定要被清掉（否则路由反复匹配失败）。"""
+        import db as _db
+        self._patch_dirs(monkeypatch)
+        cid = _db.create_channel("old-ch", "wechat_work_bot", "{}", 1)
+        sid = _db.create_source("s1", 25998, None, 1)
+        assert _db.create_source_channel(sid, cid, 1), "前置条件：建绑定失败"
+        assert len(_db.get_source_channels(sid)) == 1
+
+        # 备份里 channels 换成另一个通道 → 旧绑定成为孤儿
+        backup_channels = [{"id": 999, "name": "new-ch",
+                            "type": "wechat_work_bot", "config": "{}", "enabled": 1}]
+        payload = _core_config({
+            "config/channels.json": json.dumps(backup_channels).encode("utf-8")})
+        resp = self.client.post("/api/restore",
+                                data={"file": (_make_zip(payload), "b.zip")},
+                                content_type="multipart/form-data")
+        assert resp.get_json()["ok"] is True
+        assert _db.get_source_channels(sid) == [], "孤儿绑定应被清理"
 
     def test_dry_run_validates_without_writing(self, monkeypatch):
         """#10: dry-run 做真实校验（含插件可加载），但一个字节都不写。"""
