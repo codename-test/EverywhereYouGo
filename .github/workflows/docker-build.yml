@@ -19,6 +19,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up QEMU (for arm64 cross-architecture builds)
+        uses: docker/setup-qemu-action@v2
+
       - name: Generate GHCR tags
         id: meta
         uses: docker/metadata-action@v5
@@ -44,6 +47,7 @@ jobs:
         with:
           context: .
           push: true
+          platforms: [linux/amd64, linux/arm64]
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
@@ -75,5 +79,6 @@ jobs:
         with:
           context: .
           push: true
+          platforms: [linux/amd64, linux/arm64]
           tags: ${{ steps.meta_dh.outputs.tags }}
           labels: ${{ steps.meta_dh.outputs.labels }}
