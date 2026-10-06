@@ -4,6 +4,13 @@ on:
   push:
     branches: [main, dev]
     tags: ["v*"]
+    # 文档 / CI 配置 / 部署编排 的改动不影响镜像内容，不重建（省 Actions 分钟）。
+    # 注意：路径过滤只对分支 push 生效，tag push（v*）始终构建。
+    paths-ignore:
+      - '**.md'
+      - 'doc/**'
+      - '.github/**'
+      - 'deploy/**'
   workflow_dispatch:
 
 env:

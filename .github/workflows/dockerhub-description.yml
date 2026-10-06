@@ -1,0 +1,27 @@
+name: Docker Hub Description
+
+# 把英文 README 同步到 Docker Hub 仓库页的 Full Description。
+# 触发：main 分支上 README.en.md（或本文件）变化时；也可手动 workflow_dispatch（首次填充用）。
+# 说明：不传 short-description → action 不会改动仓库现有短描述（dockerhub-helper.ts 里空值不带入 PATCH）。
+on:
+  push:
+    branches: [main]
+    paths:
+      - README.en.md
+      - .github/workflows/dockerhub-description.yml
+  workflow_dispatch:
+
+jobs:
+  description:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ secrets.DOCKERHUB_USERNAME }}/everywhereyougo
+          readme-filepath: ./README.en.md
+          enable-url-completion: true
