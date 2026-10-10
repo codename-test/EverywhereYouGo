@@ -239,3 +239,40 @@ def api_rate_limit_set(channel_id):
         return jsonify({"status": "error", "error": "per_minute must be >= 0"}), 400
     get_limiter().set_rate(channel_id, per_minute)
     return jsonify({"status": "ok", "channel_id": channel_id, "per_minute": per_minute})
+
+
+# ── 聚合配置快照（只读） ──
+
+@system_bp.route("/api/config", methods=["GET"])
+def api_config():
+    """一次性返回完整配置快照：解析器 / 模板 / 通道 / 来源。
+
+    sources 为顶层 Source 组（parent_id IS NULL），每个组内嵌其子路由 sub_routes；
+    每个来源与子路由都带 parser_name（解析器名，解析器缺失时为 None）
+    和 bindings（该来源的 source_channels 绑定，按 priority 排序）。
+    纯读操作，不改表结构、不改鉴权。
+    """
+    parsers = db.get_parsers()
+    templates = db.get_templates()
+    channels = db.get_channels()
+
+    parser_name_by_id = {p["id"]: p.get("name") for p in parsers}
+
+    def _source_node(row):
+        node = dict(row)
+        node["parser_name"] = parser_name_by_id.get(row.get("parser_id"))
+        node["bindings"] = db.get_source_channels(row["id"])
+        return node
+
+    sources = []
+    for group in db.get_source_groups():
+        node = _source_node(group)
+        node["sub_routes"] = [_source_node(sub) for sub in db.get_sub_routes(group["id"])]
+        sources.append(node)
+
+    return jsonify({
+        "parsers": parsers,
+        "templates": templates,
+        "channels": channels,
+        "sources": sources,
+    })

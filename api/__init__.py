@@ -116,6 +116,18 @@ def create_app(source_mgr=None):
                 return jsonify({"error": i18n._("err.unauthorized")}), 401
             return redirect("/login")
 
+    # 计划中的写端点白名单：逐步补全时往这里加。当前只放行"创建完整数据源"。
+    _WRITE_ALLOWLIST = {"/api/sources/full"}
+
+    @app.before_request
+    def _query_only_guard():
+        """查询类 API 模式：/api/ 下只允许 GET/HEAD；操作类默认屏蔽，仅白名单写端点放行。
+        webhook 接收器在 /<prefix>/ 下，不受影响。"""
+        if request.path.startswith("/api/") and request.method not in ("GET", "HEAD"):
+            if request.path in _WRITE_ALLOWLIST:
+                return
+            return jsonify({"status": "error", "error": "operation APIs disabled (query-only mode)"}), 403
+
     # ── 注册蓝图 ──
     from api.auth import auth_bp
     from api.sources import sources_bp

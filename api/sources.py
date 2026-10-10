@@ -3,6 +3,7 @@
 """api/sources.py — 数据源 CRUD + 绑定 + 样本 + 测试"""
 
 import os
+import sqlite3
 import log
 import db
 import parser_loader
@@ -10,7 +11,7 @@ import i18n
 from flask import Blueprint, request, jsonify, current_app
 from api.validation import (
     require_name, optional_str, optional_int, optional_port,
-    optional_flag, optional_slug,
+    optional_flag, optional_slug, ValidationError,
 )
 
 sources_bp = Blueprint("sources", __name__)
@@ -56,6 +57,104 @@ def api_create_source():
     import config_manager
     config_manager.sync_table("sources")
     return jsonify({"id": sid})
+
+
+@sources_bp.route("/api/sources/full", methods=["POST"])
+def api_create_source_full():
+    """一次性创建完整 Source：源本身 + 全部通道绑定。
+
+    与 POST /api/sources 的区别：
+    - 只 INSERT，绝不覆盖已有记录（不存在 upsert 语义）；
+    - 源与绑定在同一个事务里写入，任一步失败整体回滚；
+    - parser_id / channel_id / template_id 必须是库里已存在的组件。
+    """
+    data = request.json or {}
+    name = require_name(data)
+    port = optional_port(data)
+    slug = optional_slug(data)
+    parser_id = optional_int(data, "parser_id", 1, default=None)
+    enabled = optional_flag(data, "enabled", default=1)
+    parent_id = optional_int(data, "parent_id", 1, default=None)
+    path = optional_str(data, "path", max_len=200, default="") or ""
+
+    raw_bindings = data.get("bindings") or []
+    if not isinstance(raw_bindings, list):
+        raise ValidationError("bindings must be a list")
+
+    # 只允许引用已存在的组件
+    if parser_id is None:
+        raise ValidationError("parser_id is required")
+    if db.get_parser(parser_id) is None:
+        raise ValidationError(f"parser_id {parser_id} does not exist")
+
+    bindings = []
+    for i, b in enumerate(raw_bindings):
+        if not isinstance(b, dict):
+            raise ValidationError(f"bindings[{i}] must be a JSON object")
+        channel_id = optional_int(b, "channel_id", 1)
+        template_id = optional_int(b, "template_id", 1)
+        if db.get_channel(channel_id) is None:
+            raise ValidationError(f"bindings[{i}]: channel_id {channel_id} does not exist")
+        if db.get_template(template_id) is None:
+            raise ValidationError(f"bindings[{i}]: template_id {template_id} does not exist")
+        bindings.append({
+            "channel_id": channel_id,
+            "template_id": template_id,
+            "condition_expr": optional_str(b, "condition_expr", max_len=500, default="") or "",
+            "priority": optional_int(b, "priority", default=0),
+            "dedup_key_expr": optional_str(b, "dedup_key_expr", max_len=200, default="") or "",
+            "dedup_window": optional_int(b, "dedup_window", 0, default=3600),
+            "enabled": optional_flag(b, "enabled", default=1),
+            "urgent": optional_flag(b, "urgent", default=0),
+        })
+
+    # 冲突检查：slug / port 唯一索引（只 INSERT，不覆盖）
+    if slug and db.get_source_by_slug(slug):
+        return jsonify({"error": "slug already exists"}), 409
+    if port and db.get_source_by_port(port):
+        return jsonify({"error": i18n._("err.port_in_use")}), 409
+
+    conn = db._conn()
+    try:
+        cur = conn.execute(
+            """INSERT INTO sources (name, port, parser_id, enabled, slug, parent_id, path)
+               VALUES (?,?,?,?,?,?,?)""",
+            (name, port, parser_id, enabled, slug, parent_id, path)
+        )
+        sid = cur.lastrowid
+        binding_ids = []
+        for b in bindings:
+            bcur = conn.execute(
+                """INSERT INTO source_channels
+                   (source_id, channel_id, template_id, condition_expr, priority,
+                    enabled, urgent, dedup_key_expr, dedup_window)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (sid, b["channel_id"], b["template_id"], b["condition_expr"],
+                 b["priority"], b["enabled"], b["urgent"],
+                 b["dedup_key_expr"], b["dedup_window"])
+            )
+            binding_ids.append(bcur.lastrowid)
+        conn.commit()
+    except sqlite3.IntegrityError as e:
+        # 并发下唯一索引仍可能冲突：此时尚未 commit，回滚即可，绝不覆盖既有行
+        conn.rollback()
+        log.logger.error(f"[sources/full] integrity error: {e}")
+        return jsonify({"error": "slug or port already exists"}), 409
+    except Exception as e:
+        conn.rollback()
+        log.logger.error(f"[sources/full] rollback: {e}")
+        return jsonify({"error": str(e)}), 500
+
+    import config_manager
+    config_manager.sync_table("sources")
+    config_manager.sync_table("bindings")
+
+    # 仅端口模式的顶层 Source 需要启动监听
+    sm = current_app.source_mgr
+    if sm and port and not parent_id:
+        sm.start_source(sid)
+
+    return jsonify({"id": sid, "bindings": binding_ids, "status": "ok"}), 201
 
 
 @sources_bp.route("/api/sources/<int:sid>", methods=["PUT"])
