@@ -200,13 +200,41 @@ def api_update_source(sid):
     if "path" in data:
         patch["path"] = optional_str(data, "path", max_len=200, default="") or ""
 
+    # P1-3：改 parent_id/path 前查子路由 path 冲突（排除自身）→ 409
+    new_parent = patch.get("parent_id", old.get("parent_id"))
+    new_path = patch.get("path", old.get("path"))
+    if new_parent and new_path:
+        clash = db.get_sub_route_by_path(new_parent, new_path)
+        if clash and clash["id"] != sid:
+            return jsonify({"error": "path already exists under this source"}), 409
+
     sm = current_app.source_mgr
-    # Only stop/start listener for port-mode sources
-    if sm and old.get("port") and not old.get("parent_id"):
+    is_port_mode = bool(old.get("port")) and not old.get("parent_id")
+    if sm and is_port_mode:
         sm.stop_source(sid)
-    db.update_source(sid, **patch)
-    if sm and old.get("port") and not old.get("parent_id") and data.get("enabled", old["enabled"]):
-        sm.start_source(sid)
+
+    # 更新：撞唯一索引（slug/port/(parent_id,path)）→ 恢复旧监听 + 409
+    try:
+        db.update_source(sid, **patch)
+    except sqlite3.IntegrityError as e:
+        if sm and is_port_mode:
+            sm.start_source(sid)   # DB 未改，旧配置仍在 → 重启旧监听
+        log.logger.error(f"[sources PUT] integrity error on update {sid}: {e}")
+        return jsonify({"error": "conflict: slug/port/sub-route path already exists"}), 409
+
+    # P1-1：端口模式重启监听；失败则回滚旧配置 + 重启旧监听（保留的必须可用）
+    if sm and is_port_mode and data.get("enabled", old["enabled"]):
+        started, err = sm.start_source(sid)
+        if not started and err:
+            old_patch = {k: old.get(k) for k in
+                         ("name", "port", "parser_id", "enabled", "slug", "parent_id", "path")}
+            db.update_source(sid, **old_patch)
+            sm.start_source(sid)
+            import config_manager
+            config_manager.sync_table("sources")
+            log.logger.error(f"[sources PUT] listener failed, restored old config for {sid}: {err}")
+            return jsonify({"error": "listener failed to start: %s" % err}), 500
+
     import config_manager
     config_manager.sync_table("sources")
     return jsonify({"status": "ok"})
