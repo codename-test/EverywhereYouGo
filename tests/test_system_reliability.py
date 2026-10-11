@@ -13,7 +13,6 @@ import shutil
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 _test_db_dir = tempfile.mkdtemp()
-os.environ["DB_PATH"] = os.path.join(_test_db_dir, "test_reliability.db")
 
 import db
 import bus

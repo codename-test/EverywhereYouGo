@@ -23,7 +23,6 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 _test_db_dir = tempfile.mkdtemp()
-os.environ["DB_PATH"] = os.path.join(_test_db_dir, "test_config_snapshot.db")
 os.environ["EGO_SSL_ENABLED"] = "0"
 TEST_TOKEN = "config-test-token"
 AUTH_HEADER = {"Authorization": "Bearer " + TEST_TOKEN}

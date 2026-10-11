@@ -9,6 +9,7 @@ import os
 import json
 import time
 import fcntl
+import tempfile
 import log
 
 CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
@@ -73,17 +74,28 @@ def _read_json(name: str):
 
 
 def _write_json(name: str, data):
-    """原子写入 JSON（tmp + rename），带排他文件锁防并发写。"""
+    """原子写入 JSON（唯一 tmp + rename），带排他文件锁防并发写。
+
+    tmp 用 mkstemp 生成唯一名——固定名 `path+".tmp"` 在并发写同一文件时会互相踩
+    （A rename 走后 B 仍握着旧 inode，导致 B 直接写最终文件或 rename 时 FileNotFound）。
+    唯一名彻底消除该竞争；失败时清理临时文件。"""
     os.makedirs(CONFIG_DIR, exist_ok=True)
     path = os.path.join(CONFIG_DIR, name)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)  # 排他锁（写）
+    fd, tmp = tempfile.mkstemp(dir=CONFIG_DIR, prefix=name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)  # 排他锁（写）
+            try:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+        os.replace(tmp, path)
+    except Exception:
         try:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        finally:
-            fcntl.flock(f, fcntl.LOCK_UN)
-    os.replace(tmp, path)
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _mark_synced():

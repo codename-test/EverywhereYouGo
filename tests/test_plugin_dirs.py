@@ -15,7 +15,6 @@ import tempfile
 import shutil
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-os.environ.setdefault("DB_PATH", os.path.join(tempfile.mkdtemp(), "test_plugin_dirs.db"))
 os.environ["EGO_SSL_ENABLED"] = "0"
 
 import db

@@ -16,6 +16,30 @@ from api.validation import (
 
 sources_bp = Blueprint("sources", __name__)
 
+
+def _sub_route_error(parent_id, path, sid=None):
+    """子路由（parent_id 有效）必须挂在"存在且顶层"的 Source 组下、且路径非空。
+
+    路由是两级匹配（path_router：先按 slug 找组，再 (组id, path) 精确找子路由），
+    且连接未开 PRAGMA foreign_keys（db/queries.py 注释确认），所以悬空父级/三级嵌套/
+    自引用/空 path 都能写进 DB，却永远解析不到——等于造一个收不到消息的 Source。
+    返回错误消息或 None。"""
+    if not parent_id:
+        return None
+    parent = db.get_source(parent_id)
+    if not parent:
+        return "parent source does not exist"
+    if parent.get("parent_id"):
+        return "parent must be a top-level source group (not another sub-route)"
+    if sid is not None and parent_id == sid:
+        return "source cannot be its own parent"
+    if not path:
+        return "sub-route requires a non-empty path"
+    if "/" in path:
+        return "path must be a single segment (no '/')"
+    return None
+
+
 @sources_bp.route("/api/sources", methods=["GET"])
 def api_sources():
     """Return top-level sources (groups + port-mode) with nested sub-routes."""
@@ -41,6 +65,9 @@ def api_create_source():
     port = optional_port(data)
     parent_id = optional_int(data, "parent_id", 1, default=None)
     path = optional_str(data, "path", max_len=200, default="") or ""
+    err = _sub_route_error(parent_id, path)
+    if err:
+        return jsonify({"error": err}), 400
     # 子路由：同一组下 path（nginx 路径最后一段）不能重复
     if parent_id and path and db.get_sub_route_by_path(parent_id, path):
         return jsonify({"error": "path already exists under this source"}), 409
@@ -124,6 +151,9 @@ def api_create_source_full():
     if port and db.get_source_by_port(port):
         return jsonify({"error": i18n._("err.port_in_use")}), 409
     # 子路由：同一组下 path（nginx 路径 /<prefix>/<slug>/<path> 的最后一段）不能重复
+    err = _sub_route_error(parent_id, path)
+    if err:
+        return jsonify({"error": err}), 400
     if parent_id and path and db.get_sub_route_by_path(parent_id, path):
         return jsonify({"error": "path already exists under this source"}), 409
 
@@ -215,6 +245,10 @@ def api_update_source(sid):
     # P1-3：改 parent_id/path 前查子路由 path 冲突（排除自身）→ 409
     new_parent = patch.get("parent_id", old.get("parent_id"))
     new_path = patch.get("path", old.get("path"))
+    # 子路由必须挂在存在且顶层的组下、路径非空——否则写进去也收不到消息
+    err = _sub_route_error(new_parent, new_path, sid)
+    if err:
+        return jsonify({"error": err}), 400
     if new_parent and new_path:
         clash = db.get_sub_route_by_path(new_parent, new_path)
         if clash and clash["id"] != sid:

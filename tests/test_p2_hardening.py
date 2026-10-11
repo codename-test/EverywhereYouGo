@@ -9,7 +9,6 @@ import shutil
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 _test_db_dir = tempfile.mkdtemp()
-os.environ["DB_PATH"] = os.path.join(_test_db_dir, "test_p2.db")
 # 测试里关掉内置 HTTPS，避免 GET 被 301 到不存在的 HTTPS 端口
 os.environ["EGO_SSL_ENABLED"] = "0"
 

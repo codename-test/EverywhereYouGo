@@ -17,7 +17,6 @@ from http.server import BaseHTTPRequestHandler
 
 # 使用临时数据库（source_listener 模块级 import db）
 _test_db_dir = tempfile.mkdtemp()
-os.environ["DB_PATH"] = os.path.join(_test_db_dir, "test_ego.db")
 
 import source_listener
 

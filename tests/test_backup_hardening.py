@@ -11,7 +11,6 @@ import shutil
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 # 使用临时数据库，避免污染真实库
-os.environ["DB_PATH"] = os.path.join(tempfile.mkdtemp(), "test_backup.db")
 
 import db
 db.init_db()

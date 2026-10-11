@@ -26,7 +26,6 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 _test_db_dir = tempfile.mkdtemp()
-os.environ["DB_PATH"] = os.path.join(_test_db_dir, "test_query_only_guard.db")
 # 关掉内置 HTTPS，避免 GET 被 301 到不存在的 HTTPS 端口
 os.environ["EGO_SSL_ENABLED"] = "0"
 # 打开认证，才能区分"未登录 401"与"guard 403"

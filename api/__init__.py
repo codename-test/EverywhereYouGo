@@ -193,4 +193,16 @@ def create_app(source_mgr=None):
             return jsonify({"error": msg}), 413
         return msg, 413
 
+    # ── 未捕获异常统一兜底（review #6）：/api/ 返 JSON，其余返纯文本 500。
+    #    HTTPException（404/405/…）交回 Flask 默认处理，不改语义。──
+    @app.errorhandler(Exception)
+    def _handle_unexpected(e):
+        from werkzeug.exceptions import HTTPException
+        if isinstance(e, HTTPException):
+            return e
+        log.logger.exception(f"Unhandled error on {request.method} {request.path}")
+        if request.path.startswith("/api/"):
+            return jsonify({"status": "error", "error": i18n._("err.internal")}), 500
+        return "Internal Server Error", 500
+
     return app

@@ -153,17 +153,6 @@ def delete_source(source_id):
     conn.commit()
 
 
-def upsert_source(sid, name, port=None, parser_id=None, enabled=1,
-                  slug=None, parent_id=None, path=""):
-    _conn().execute(
-        """INSERT OR REPLACE INTO sources
-           (id, name, port, parser_id, enabled, slug, parent_id, path)
-           VALUES (?,?,?,?,?,?,?,?)""",
-        (sid, name, port, parser_id, enabled, slug, parent_id, path)
-    )
-    _conn().commit()
-
-
 # ═══════════════════════════════════════════════
 #  Channels
 # ═══════════════════════════════════════════════

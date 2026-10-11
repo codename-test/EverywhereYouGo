@@ -9,7 +9,6 @@ import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 _test_db_dir = tempfile.mkdtemp()
-os.environ["DB_PATH"] = os.path.join(_test_db_dir, "test_source_update.db")
 os.environ["EGO_SSL_ENABLED"] = "0"
 
 import db
@@ -170,6 +169,66 @@ class TestSourceUpdate:
         assert r.status_code == 409, r.data[:200]
         assert "path already exists" in json.loads(r.data).get("error", ""), r.data
         assert db.get_source(79)["path"] == "shows", "冲突不应改动"
+
+    # ── P1：子路由必须挂有效顶层父级 + 非空路径，否则 400 ──
+
+    def test_put_subroute_dangling_parent_400(self):
+        conn = db._conn()
+        conn.execute("INSERT INTO sources (id,name,slug,parser_id,enabled) VALUES (10,'s','s10',1,1)")
+        conn.commit()
+        r = self._client(_FakeSM()).put("/api/sources/10",
+                                        data=json.dumps({"parent_id": 999, "path": "p10"}),
+                                        content_type="application/json")
+        assert r.status_code == 400, r.data[:200]
+        assert "parent source does not exist" in json.loads(r.data).get("error", ""), r.data
+        assert db.get_source(10)["parent_id"] is None, "被拒不应改动"
+
+    def test_put_subroute_nested_parent_400(self):
+        conn = db._conn()
+        conn.execute("INSERT INTO sources (id,name,slug,parser_id,enabled) VALUES (77,'g','grp',1,1)")
+        conn.execute("INSERT INTO sources (id,name,slug,parent_id,path,parser_id,enabled) "
+                     "VALUES (11,'sub','sub11',77,'p11',1,1)")
+        conn.execute("INSERT INTO sources (id,name,slug,parser_id,enabled) VALUES (10,'s','s10',1,1)")
+        conn.commit()
+        # 把 10 挂到 11（11 本身是子路由）→ 三级嵌套，路由解析不到
+        r = self._client(_FakeSM()).put("/api/sources/10",
+                                        data=json.dumps({"parent_id": 11, "path": "x"}),
+                                        content_type="application/json")
+        assert r.status_code == 400, r.data[:200]
+        assert "top-level" in json.loads(r.data).get("error", ""), r.data
+
+    def test_put_self_parent_400(self):
+        conn = db._conn()
+        conn.execute("INSERT INTO sources (id,name,slug,parser_id,enabled) VALUES (10,'s','s10',1,1)")
+        conn.commit()
+        r = self._client(_FakeSM()).put("/api/sources/10",
+                                        data=json.dumps({"parent_id": 10, "path": "p"}),
+                                        content_type="application/json")
+        assert r.status_code == 400, r.data[:200]
+        assert "own parent" in json.loads(r.data).get("error", ""), r.data
+
+    def test_put_subroute_empty_path_400(self):
+        conn = db._conn()
+        conn.execute("INSERT INTO sources (id,name,slug,parser_id,enabled) VALUES (77,'g','grp',1,1)")
+        conn.execute("INSERT INTO sources (id,name,slug,parser_id,enabled) VALUES (10,'s','s10',1,1)")
+        conn.commit()
+        r = self._client(_FakeSM()).put("/api/sources/10",
+                                        data=json.dumps({"parent_id": 77, "path": ""}),
+                                        content_type="application/json")
+        assert r.status_code == 400, r.data[:200]
+        assert "non-empty path" in json.loads(r.data).get("error", ""), r.data
+
+    def test_put_valid_subroute_ok(self):
+        conn = db._conn()
+        conn.execute("INSERT INTO sources (id,name,slug,parser_id,enabled) VALUES (77,'g','grp',1,1)")
+        conn.execute("INSERT INTO sources (id,name,slug,parser_id,enabled) VALUES (10,'s','s10',1,1)")
+        conn.commit()
+        r = self._client(_FakeSM()).put("/api/sources/10",
+                                        data=json.dumps({"parent_id": 77, "path": "p10"}),
+                                        content_type="application/json")
+        assert r.status_code == 200, r.data[:200]
+        s = db.get_source(10)
+        assert s["parent_id"] == 77 and s["path"] == "p10" and s["port"] is None
 
     # ── P1-2：真实 ListenerManager，bind 失败后无 _servers/_threads 残留 ──
 

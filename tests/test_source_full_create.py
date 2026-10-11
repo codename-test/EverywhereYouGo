@@ -22,7 +22,6 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 _test_db_dir = tempfile.mkdtemp()
-os.environ["DB_PATH"] = os.path.join(_test_db_dir, "test_source_full.db")
 os.environ["EGO_SSL_ENABLED"] = "0"
 TEST_TOKEN = "source-full-token"
 AUTH_HEADER = {"Authorization": "Bearer " + TEST_TOKEN}
@@ -113,6 +112,7 @@ class TestSourceFullCreate:
         assert db.get_source_by_slug("old-slug")["id"] == 77
 
     def test_single_transaction_one_commit(self):
+        orig_conn_fn = db._conn
         real = db._conn()
         calls = []
 
@@ -137,7 +137,7 @@ class TestSourceFullCreate:
                             "bindings": [{"channel_id": 1, "template_id": 1},
                                          {"channel_id": 1, "template_id": 1}]})
         finally:
-            db._conn = lambda: real
+            db._conn = orig_conn_fn
         assert r.status_code == 201, r.data[:200]
         # 写事务：1 次源插入 + 2 次绑定插入 + 恰好 1 次 commit，commit 紧跟绑定之后
         assert calls[:4] == [("execute", "sources"), ("execute", "source_channels"),
@@ -278,6 +278,7 @@ class TestSourceFullCreate:
 
     def test_rollback_leaves_no_partial_rows(self):
         """绑定插入失败时整体回滚：源行也不能存在。"""
+        orig_conn_fn = db._conn
         real = db._conn()
 
         class _Boom:
@@ -294,11 +295,28 @@ class TestSourceFullCreate:
             r = self._post({"name": "src", "slug": "rb-slug", "parser_id": 1,
                             "bindings": [{"channel_id": 1, "template_id": 1}]})
         finally:
-            db._conn = lambda: real
+            db._conn = orig_conn_fn
         assert r.status_code == 500, r.data[:200]
         assert _err(r).get("error") == "boom on binding insert", _err(r)
         assert db.get_source_by_slug("rb-slug") is None, "源行应被回滚"
         assert db.get_all_source_channels() == [], "绑定应被回滚"
+
+    # ── P1：创建子路由必须挂有效顶层父级 + 非空路径 ──
+
+    def test_create_subroute_dangling_parent_400(self):
+        r = self._post({"name": "sub", "parent_id": 999, "path": "p", "parser_id": 1,
+                        "bindings": [{"channel_id": 1, "template_id": 1}]})
+        assert r.status_code == 400, r.data[:200]
+        assert "parent source does not exist" in _err(r).get("error", ""), r.data
+
+    def test_create_subroute_empty_path_400(self):
+        conn = db._conn()
+        conn.execute("INSERT INTO sources (id,name,slug,parser_id,enabled) VALUES (77,'g','grp',1,1)")
+        conn.commit()
+        r = self._post({"name": "sub", "parent_id": 77, "path": "", "parser_id": 1,
+                        "bindings": [{"channel_id": 1, "template_id": 1}]})
+        assert r.status_code == 400, r.data[:200]
+        assert "non-empty path" in _err(r).get("error", ""), r.data
 
     @classmethod
     def teardown_class(cls):
