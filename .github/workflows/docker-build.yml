@@ -2,7 +2,9 @@ name: Docker Build
 
 on:
   push:
-    branches: [main, dev]
+    # dev 分支不再自动构建/推送镜像（DockerHub/GHCR 上堆积的 :sha-* 测试包用不到）。
+    # 需要 dev 镜像时用 Actions 页面 workflow_dispatch 手动触发。
+    branches: [main]
     tags: ["v*"]
     # 文档 / CI 配置 / 部署编排 的改动不影响镜像内容，不重建（省 Actions 分钟）。
     # 注意：路径过滤只对分支 push 生效，tag push（v*）始终构建。
