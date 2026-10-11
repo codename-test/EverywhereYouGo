@@ -50,3 +50,6 @@ doc/improvement.md
 # 证书文件（运行时自动生成）
 certs/
 
+
+# session-local 任务清单
+*_TODO.md

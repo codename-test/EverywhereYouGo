@@ -252,4 +252,28 @@ def init_db():
     conn.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_sources_port
                     ON sources(port) WHERE port IS NOT NULL""")
 
+    # 子路由 nginx 路径去重：同一父级下 path 不能重复（/<prefix>/<slug>/<path>）。
+    # 先检测既有库遗留的重复；有重复则报告并暂缓建索引（代码层查重仍能拦新增），
+    # 待用户清理冲突记录后下次启动自动补建。
+    import log
+    dups = conn.execute(
+        """SELECT parent_id, path, GROUP_CONCAT(id) AS ids, COUNT(*) AS n
+           FROM sources
+           WHERE parent_id IS NOT NULL AND path <> ''
+           GROUP BY parent_id, path
+           HAVING COUNT(*) > 1
+           ORDER BY parent_id, path"""
+    ).fetchall()
+    if dups:
+        log.logger.warning(
+            "[migrate] 原库存在重复的子路由 path（同父级下），唯一索引 idx_sources_subpath "
+            "暂缓创建；请清理下列冲突记录后重启（代码层查重已阻止新增重复）：")
+        for d in dups:
+            log.logger.warning("  parent_id=%s path=%r 冲突 id=%s（%s 条）",
+                               d["parent_id"], d["path"], d["ids"], d["n"])
+    else:
+        conn.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_sources_subpath
+                        ON sources(parent_id, path)
+                        WHERE parent_id IS NOT NULL AND path <> ''""")
+
     conn.commit()

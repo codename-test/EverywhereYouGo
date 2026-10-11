@@ -153,23 +153,23 @@ def delete_source(source_id):
     conn.commit()
 
 
-def upsert_source(sid, name, port=None, parser_id=None, enabled=1,
-                  slug=None, parent_id=None, path=""):
-    _conn().execute(
-        """INSERT OR REPLACE INTO sources
-           (id, name, port, parser_id, enabled, slug, parent_id, path)
-           VALUES (?,?,?,?,?,?,?,?)""",
-        (sid, name, port, parser_id, enabled, slug, parent_id, path)
-    )
-    _conn().commit()
-
-
 # ═══════════════════════════════════════════════
 #  Channels
 # ═══════════════════════════════════════════════
 
 def get_channels():
     return [dict(r) for r in _conn().execute("SELECT * FROM channels ORDER BY id").fetchall()]
+
+
+def get_channels_brief():
+    """通道目录（不含 config）：供 /api/config 等对外快照使用。
+
+    channels.config 含 token / webhook 等鉴权信息，绝不出现在对外响应里，
+    因此在 SQL 层就不 SELECT 它——密钥根本不进内存。
+    """
+    return [dict(r) for r in _conn().execute(
+        "SELECT id, name, type, enabled, created_at FROM channels ORDER BY id"
+    ).fetchall()]
 
 
 def get_channel(channel_id):

@@ -8,7 +8,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 # 使用临时数据库
 _test_db_dir = tempfile.mkdtemp()
-os.environ["DB_PATH"] = os.path.join(_test_db_dir, "test_ego.db")
 
 import db
 from queue_backend import SQLiteQueueBackend, get_backend

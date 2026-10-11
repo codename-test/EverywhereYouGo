@@ -116,6 +116,39 @@ def create_app(source_mgr=None):
                 return jsonify({"error": i18n._("err.unauthorized")}), 401
             return redirect("/login")
 
+    # 外部集成（Bearer token）白名单：默认拒绝，只显式放行组装所需的最小面。
+    #   读：只允许组件目录 + 健康检查；写：只允许"创建完整数据源"。
+    # WebUI(session) 与无 token 部署不受 guard 限制（见下）。
+    _READ_ALLOWLIST = {"/api/config", "/api/health"}
+    _WRITE_ALLOWLIST = {"/api/sources/full"}
+
+    @app.before_request
+    def _query_only_guard():
+        """外部集成权限边界（仅约束 Bearer token 调用方）：/api/ 下默认拒绝，
+        只放行读白名单(GET/HEAD) 与写白名单，其余一律 403。
+
+        直接放行（不启用 guard）：
+          - 未配置 EGO_AUTH_TOKEN：无外部 token 调用方，guard 无意义；
+          - session 已登录：WebUI 用户，保留完整读写权限。
+        webhook 接收器在 /<prefix>/ 下、登录在 /login，均不在 /api/ 下，不受 guard 影响。
+
+        边界说明：guard 是"请求行为限制"，不是独立权限体系——持同一 token 仍可
+        经表单登录换 session。真正的 WebUI/外部 API 角色隔离待后续专用集成密钥实现。
+        """
+        if not AUTH_TOKEN:
+            return
+        if session.get("authenticated"):
+            return
+        if not request.path.startswith("/api/"):
+            return
+        if request.method in ("GET", "HEAD"):
+            if request.path in _READ_ALLOWLIST:
+                return
+            return jsonify({"status": "error", "error": "read API not permitted for integration token"}), 403
+        if request.path in _WRITE_ALLOWLIST:
+            return
+        return jsonify({"status": "error", "error": "operation APIs disabled (query-only mode)"}), 403
+
     # ── 注册蓝图 ──
     from api.auth import auth_bp
     from api.sources import sources_bp
@@ -159,5 +192,17 @@ def create_app(source_mgr=None):
         if request.path.startswith("/api/"):
             return jsonify({"error": msg}), 413
         return msg, 413
+
+    # ── 未捕获异常统一兜底（review #6）：/api/ 返 JSON，其余返纯文本 500。
+    #    HTTPException（404/405/…）交回 Flask 默认处理，不改语义。──
+    @app.errorhandler(Exception)
+    def _handle_unexpected(e):
+        from werkzeug.exceptions import HTTPException
+        if isinstance(e, HTTPException):
+            return e
+        log.logger.exception(f"Unhandled error on {request.method} {request.path}")
+        if request.path.startswith("/api/"):
+            return jsonify({"status": "error", "error": i18n._("err.internal")}), 500
+        return "Internal Server Error", 500
 
     return app

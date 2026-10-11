@@ -17,7 +17,6 @@ import threading
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-os.environ["DB_PATH"] = os.path.join(tempfile.mkdtemp(), "test_upload_race.db")
 
 import db
 import plugin_paths

@@ -288,33 +288,65 @@ class ListenerManager:
                 self.start_source(s["id"])
 
     def start_source(self, source_id):
-        """启动单个数据源的 HTTP 监听。"""
+        """启动单个数据源的 HTTP 监听。
+
+        返回 (started: bool, error: str|None)：
+          - (True,  None) 监听已启动；
+          - (False, None) 该源不需要监听（未启用 / 无端口）——不算失败；
+          - (False, err)  尝试启动但失败（如端口被占用），本次部分初始化的资源已清理。
+        """
         src = db.get_source(source_id)
         if not src or not src["enabled"] or not src.get("port"):
-            return
+            return (False, None)
 
         if source_id in self._servers:
             self.stop_source(source_id)
 
+        server = None
+        ready = threading.Event()
         try:
             server = _ThreadPoolHTTPServer(("0.0.0.0", src["port"]), _HookHandler)
             server.source_id = source_id
             server.timeout = 10  # 读取超时 10 秒
             self._servers[source_id] = server
 
-            t = threading.Thread(
-                target=server.serve_forever,
-                daemon=True,
-                name=f"source-{source_id}"
-            )
-            t.start()
-            self._threads[source_id] = t
-            log.logger.info(f"Source [{src['name']}] listening on port {src['port']}")
+            def _serve():
+                ready.set()  # 标记 serve_forever 即将进入循环
+                server.serve_forever()
 
-            # 触发 source.started 事件
-            bus.emit(bus.source_started, source_id=source_id)
+            thread = threading.Thread(target=_serve, daemon=True, name=f"source-{source_id}")
+            thread.start()
+            self._threads[source_id] = thread
+            log.logger.info(f"Source [{src['name']}] listening on port {src['port']}")
         except Exception as e:
             log.logger.error(f"Failed to start source {source_id}: {e}")
+            self._cleanup_partial(source_id, server, ready)
+            return (False, str(e))
+
+        # 监听已成功启动：事件通知失败只记录，不把可用监听器拖进失败清理路径
+        try:
+            bus.emit(bus.source_started, source_id=source_id)
+        except Exception as ee:
+            log.logger.warning(f"source_started event failed for {source_id}: {ee}")
+        return (True, None)
+
+    def _cleanup_partial(self, source_id, server, ready):
+        """start_source 失败时清理本次部分初始化的资源，避免 _servers/_threads 泄漏或 socket 占用。
+
+        ready 已置位 → serve_forever 已进入（或即将进入）循环，shutdown() 会安全等其退出；
+        ready 未置位 → 循环尚未开始，只 server_close() 释放 socket，不调 shutdown()（会阻塞等待
+        一个从未运行的服务循环）。
+        """
+        self._servers.pop(source_id, None)
+        self._threads.pop(source_id, None)
+        if server is None:
+            return
+        try:
+            if ready.is_set():
+                server.shutdown()
+            server.server_close()
+        except Exception as ce:
+            log.logger.warning(f"partial cleanup for source {source_id}: {ce}")
 
     def stop_source(self, source_id):
         """停止单个数据源的 HTTP 监听。"""

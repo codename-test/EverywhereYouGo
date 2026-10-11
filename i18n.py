@@ -513,6 +513,7 @@ TRANSLATIONS = {
         "login.token_prompt": "请输入访问 Token",
         "login.btn": "登录",
         "login.token_invalid": "Token 无效",
+        "login.too_many_attempts": "尝试次数过多，请稍后再试",
         "login.token_placeholder": "Token",
         "login.title": "登录",
 
@@ -549,6 +550,7 @@ TRANSLATIONS = {
         "err.missing_content": "缺少内容",
         "err.syntax_error": "语法错误: {error}",
         "err.unauthorized": "未授权",
+        "err.internal": "服务器内部错误",
         "err.unsupported_lang": "不支持的语言",
         "err.no_data": "无数据",
         "err.no_ids": "未提供 ID 列表",
@@ -1149,6 +1151,7 @@ TRANSLATIONS = {
         "login.token_prompt": "Enter access Token",
         "login.btn": "Login",
         "login.token_invalid": "Invalid Token",
+        "login.too_many_attempts": "Too many attempts, please try again later",
         "login.token_placeholder": "Token",
         "login.title": "Login",
 
@@ -1185,6 +1188,7 @@ TRANSLATIONS = {
         "err.missing_content": "Missing content",
         "err.syntax_error": "Syntax error: {error}",
         "err.unauthorized": "Unauthorized",
+        "err.internal": "Internal server error",
         "err.unsupported_lang": "Unsupported language",
         "err.no_data": "No data",
         "err.no_ids": "No ids provided",
