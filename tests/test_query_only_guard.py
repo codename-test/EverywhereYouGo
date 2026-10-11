@@ -21,6 +21,8 @@ import json
 import shutil
 import tempfile
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 _test_db_dir = tempfile.mkdtemp()
@@ -29,10 +31,24 @@ os.environ["DB_PATH"] = os.path.join(_test_db_dir, "test_query_only_guard.db")
 os.environ["EGO_SSL_ENABLED"] = "0"
 # 打开认证，才能区分"未登录 401"与"guard 403"
 TEST_TOKEN = "guard-test-token"
-os.environ["EGO_AUTH_TOKEN"] = TEST_TOKEN
 
 GUARD_ERROR = "operation APIs disabled (query-only mode)"
 AUTH_HEADER = {"Authorization": "Bearer " + TEST_TOKEN}
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _auth_token():
+    """整模块测试期间开启认证（create_app 在 setup_class 期捕获 token，须先设好），
+    模块结束即还原，避免泄漏到其它测试文件。"""
+    orig = os.environ.get("EGO_AUTH_TOKEN")
+    os.environ["EGO_AUTH_TOKEN"] = TEST_TOKEN
+    try:
+        yield
+    finally:
+        if orig is None:
+            os.environ.pop("EGO_AUTH_TOKEN", None)
+        else:
+            os.environ["EGO_AUTH_TOKEN"] = orig
 
 
 def _err_body(resp):
