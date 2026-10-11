@@ -210,6 +210,38 @@ class TestSourceFullCreate:
         assert _err(r).get("error") == "path already exists under this source", _err(r)
         assert db.get_sub_route_by_path(77, "movies")["id"] == 78, "既有子路由不能被重复/覆盖"
 
+    def test_listener_failure_rolls_back_and_500(self):
+        """端口模式源监听启动失败 → 回滚刚建的源+绑定，返回 500（保留的必须可用）。"""
+        class _FakeSM:
+            def start_source(self, sid):
+                return (False, "Address already in use")
+        from api import create_app
+        client = create_app(source_mgr=_FakeSM()).test_client()
+        r = client.post(URL, data=json.dumps({
+            "name": "src", "port": 9101, "slug": "lf-slug", "parser_id": 1,
+            "bindings": [{"channel_id": 1, "template_id": 1}]}),
+            content_type="application/json", headers=AUTH_HEADER)
+        assert r.status_code == 500, r.data[:200]
+        assert "listener failed to start" in _err(r).get("error", ""), _err(r)
+        assert db.get_source_by_slug("lf-slug") is None, "监听失败应回滚源"
+        assert db.get_all_source_channels() == [], "监听失败应回滚绑定"
+
+    def test_subpath_unique_index_enforced(self):
+        """DB 唯一索引 idx_sources_subpath 拦住绕过代码查重的重复 (parent_id,path)。"""
+        conn = db._conn()
+        conn.execute("INSERT INTO sources (id,name,slug,parser_id,enabled) VALUES (77,'g','grp',1,1)")
+        conn.execute("INSERT INTO sources (id,name,slug,parent_id,path,parser_id,enabled) "
+                     "VALUES (78,'s1','s1',77,'movies',1,1)")
+        conn.commit()
+        import sqlite3
+        try:
+            conn.execute("INSERT INTO sources (id,name,slug,parent_id,path,parser_id,enabled) "
+                         "VALUES (79,'s2','s2',77,'movies',1,1)")
+            conn.commit()
+            assert False, "重复 (parent_id,path) 应被唯一索引拒绝"
+        except sqlite3.IntegrityError:
+            conn.rollback()
+
     def test_integrity_error_fallback_409_and_rollback(self):
         """绕过预检查，让唯一索引（db/schema.py:250-252）真正触发 IntegrityError。"""
         conn = db._conn()

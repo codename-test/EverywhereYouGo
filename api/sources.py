@@ -55,11 +55,16 @@ def api_create_source():
     )
     if sid is None:
         return jsonify({"error": i18n._("err.port_in_use")}), 400
-    # Only start listener for port-mode sources (no parent, has port)
+    import config_manager
+    # 端口模式顶层源启动监听；失败则回滚本次创建（保留的必须可用）
     sm = current_app.source_mgr
     if sm and port and not data.get("parent_id"):
-        sm.start_source(sid)
-    import config_manager
+        started, err = sm.start_source(sid)
+        if not started and err:
+            db.delete_source(sid)
+            config_manager.sync_table("sources")
+            log.logger.error(f"[sources] listener failed, rolled back source {sid}: {err}")
+            return jsonify({"error": "listener failed to start: %s" % err}), 500
     config_manager.sync_table("sources")
     return jsonify({"id": sid})
 
@@ -157,10 +162,16 @@ def api_create_source_full():
     config_manager.sync_table("sources")
     config_manager.sync_table("bindings")
 
-    # 仅端口模式的顶层 Source 需要启动监听
+    # 仅端口模式的顶层 Source 需要启动监听；启动失败则回滚本次创建（保留的必须可用）
     sm = current_app.source_mgr
     if sm and port and not parent_id:
-        sm.start_source(sid)
+        started, err = sm.start_source(sid)
+        if not started and err:
+            db.delete_source(sid)   # 显式级联删绑定 + 子路由
+            config_manager.sync_table("sources")
+            config_manager.sync_table("bindings")
+            log.logger.error(f"[sources/full] listener failed, rolled back source {sid}: {err}")
+            return jsonify({"error": "listener failed to start: %s" % err}), 500
 
     return jsonify({"id": sid, "bindings": binding_ids, "status": "ok"}), 201
 

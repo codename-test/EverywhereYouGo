@@ -108,6 +108,18 @@ class TestQueryOnlyGuard:
         r = self.client.head("/api/health", headers=AUTH_HEADER)
         assert r.status_code != 403, r.data[:200]
 
+    def test_read_allowlist_permits_config(self):
+        """外部 token 可读白名单内的 /api/config。"""
+        r = self.client.get("/api/config", headers=AUTH_HEADER)
+        assert r.status_code != 403, r.data[:200]
+
+    def test_reads_outside_allowlist_blocked(self):
+        """外部 token 只能读白名单；/api/channels(含 config)、/api/messages 等一律 403。"""
+        for url in ("/api/channels", "/api/messages", "/api/logs", "/api/parsers", "/api/templates"):
+            r = self.client.get(url, headers=AUTH_HEADER)
+            assert r.status_code == 403, "%s -> %s %s" % (url, r.status_code, r.data[:120])
+            assert _err_body(r).get("error") == "read API not permitted for integration token", _err_body(r)
+
     # ── 白名单：只精确匹配 /api/sources/full ──
 
     def test_allowlisted_post_is_not_blocked(self):
@@ -155,6 +167,15 @@ class TestQueryOnlyGuard:
         r = c.post("/api/settings", data=json.dumps({}), content_type="application/json")
         assert r.status_code != 403, r.data[:200]
         assert _err_body(r).get("error") != GUARD_ERROR, _err_body(r)
+
+    def test_bearer_cannot_establish_session_via_login(self):
+        """带 Bearer 头的 /login 被拒(403)：API token 不能换交互式 session 绕过 guard。"""
+        c = self.client
+        r = c.post("/login", data={"token": TEST_TOKEN}, headers=AUTH_HEADER)
+        assert r.status_code == 403, r.data[:200]
+        # 没拿到 session：后续无凭据写请求应是未认证 401，而不是 session 放行
+        r2 = c.post("/api/settings", data=json.dumps({}), content_type="application/json")
+        assert r2.status_code == 401, r2.data[:200]
 
     @classmethod
     def teardown_class(cls):

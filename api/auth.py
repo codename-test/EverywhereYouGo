@@ -4,7 +4,7 @@
 
 import hmac
 import i18n
-from flask import Blueprint, request, session, redirect, render_template, current_app
+from flask import Blueprint, request, session, redirect, render_template, current_app, jsonify
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -19,6 +19,10 @@ def login_page():
 
 @auth_bp.route("/login", methods=["POST"])
 def login_action():
+    # P0-2 边界：带 Bearer 头的是 API 调用方，禁止经 /login 换交互式 session，
+    # 以免持集成 token 的程序登录后绕过 guard 的写限制。人工登录走表单，无此头。
+    if request.headers.get("Authorization", "").startswith("Bearer "):
+        return jsonify({"error": "API token cannot establish a web session"}), 403
     token = request.form.get("token", "")
     auth_token = current_app.auth_token
     if auth_token and hmac.compare_digest(token, auth_token):

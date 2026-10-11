@@ -288,10 +288,16 @@ class ListenerManager:
                 self.start_source(s["id"])
 
     def start_source(self, source_id):
-        """启动单个数据源的 HTTP 监听。"""
+        """启动单个数据源的 HTTP 监听。
+
+        返回 (started: bool, error: str|None)：
+          - (True,  None) 监听已启动；
+          - (False, None) 该源不需要监听（未启用 / 无端口）——不算失败；
+          - (False, err)  尝试启动但失败（如端口被占用）。
+        """
         src = db.get_source(source_id)
         if not src or not src["enabled"] or not src.get("port"):
-            return
+            return (False, None)
 
         if source_id in self._servers:
             self.stop_source(source_id)
@@ -313,8 +319,10 @@ class ListenerManager:
 
             # 触发 source.started 事件
             bus.emit(bus.source_started, source_id=source_id)
+            return (True, None)
         except Exception as e:
             log.logger.error(f"Failed to start source {source_id}: {e}")
+            return (False, str(e))
 
     def stop_source(self, source_id):
         """停止单个数据源的 HTTP 监听。"""
