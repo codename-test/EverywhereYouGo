@@ -303,18 +303,18 @@ class ListenerManager:
             self.stop_source(source_id)
 
         server = None
-        thread = None
+        ready = threading.Event()
         try:
             server = _ThreadPoolHTTPServer(("0.0.0.0", src["port"]), _HookHandler)
             server.source_id = source_id
             server.timeout = 10  # 读取超时 10 秒
             self._servers[source_id] = server
 
-            thread = threading.Thread(
-                target=server.serve_forever,
-                daemon=True,
-                name=f"source-{source_id}"
-            )
+            def _serve():
+                ready.set()  # 标记 serve_forever 即将进入循环
+                server.serve_forever()
+
+            thread = threading.Thread(target=_serve, daemon=True, name=f"source-{source_id}")
             thread.start()
             self._threads[source_id] = thread
             log.logger.info(f"Source [{src['name']}] listening on port {src['port']}")
@@ -324,21 +324,22 @@ class ListenerManager:
             return (True, None)
         except Exception as e:
             log.logger.error(f"Failed to start source {source_id}: {e}")
-            self._cleanup_partial(source_id, server, thread)
+            self._cleanup_partial(source_id, server, ready)
             return (False, str(e))
 
-    def _cleanup_partial(self, source_id, server, thread):
+    def _cleanup_partial(self, source_id, server, ready):
         """start_source 失败时清理本次部分初始化的资源，避免 _servers/_threads 泄漏或 socket 占用。
 
-        线程已启动（serve_forever 在跑）→ shutdown() 会等循环退出，再 server_close()；
-        线程未启动 → 只 server_close() 释放 socket，不调 shutdown()（会阻塞等待从未运行的循环）。
+        ready 已置位 → serve_forever 已进入（或即将进入）循环，shutdown() 会安全等其退出；
+        ready 未置位 → 循环尚未开始，只 server_close() 释放 socket，不调 shutdown()（会阻塞等待
+        一个从未运行的服务循环）。
         """
         self._servers.pop(source_id, None)
         self._threads.pop(source_id, None)
         if server is None:
             return
         try:
-            if thread is not None and thread.is_alive():
+            if ready.is_set():
                 server.shutdown()
             server.server_close()
         except Exception as ce:

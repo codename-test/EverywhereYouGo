@@ -70,6 +70,73 @@ class TestSourceUpdate:
         assert db.get_source(10)["port"] == 9100, "旧端口应已恢复"
         assert sm.started and sm.started[-1] == 9100, "旧监听应被重启: %s" % sm.started
 
+    # ── P1-1：按更新后配置定模式，只在影响监听的字段变化时启停 ──
+
+    def test_rename_only_no_listener_churn(self):
+        conn = db._conn()
+        conn.execute("INSERT INTO sources (id,name,slug,port,parser_id,enabled) "
+                     "VALUES (10,'s','s10',9100,1,1)")
+        conn.commit()
+        sm = _FakeSM()
+        r = self._client(sm).put("/api/sources/10", data=json.dumps({"name": "renamed"}),
+                                content_type="application/json")
+        assert r.status_code == 200, r.data[:200]
+        assert sm.stopped == [] and sm.started == [], "改名不应启停监听: %s %s" % (sm.stopped, sm.started)
+        assert db.get_source(10)["name"] == "renamed"
+
+    def test_port_change_restarts_listener(self):
+        conn = db._conn()
+        conn.execute("INSERT INTO sources (id,name,slug,port,parser_id,enabled) "
+                     "VALUES (10,'s','s10',9100,1,1)")
+        conn.commit()
+        sm = _FakeSM()
+        r = self._client(sm).put("/api/sources/10", data=json.dumps({"port": 9101}),
+                                 content_type="application/json")
+        assert r.status_code == 200, r.data[:200]
+        assert sm.stopped == [10] and sm.started == [9101], (sm.stopped, sm.started)
+        assert db.get_source(10)["port"] == 9101
+
+    def test_subroute_to_port_starts_listener(self):
+        conn = db._conn()
+        conn.execute("INSERT INTO sources (id,name,slug,parser_id,enabled) VALUES (77,'g','grp',1,1)")
+        conn.execute("INSERT INTO sources (id,name,slug,parent_id,path,parser_id,enabled) "
+                     "VALUES (11,'sub','sub11',77,'x',1,1)")
+        conn.commit()
+        sm = _FakeSM()
+        r = self._client(sm).put("/api/sources/11",
+                                 data=json.dumps({"parent_id": None, "port": 9102}),
+                                 content_type="application/json")
+        assert r.status_code == 200, r.data[:200]
+        assert sm.stopped == [], "旧非端口模式无需 stop: %s" % sm.stopped
+        assert sm.started == [9102], "进入端口模式应 start: %s" % sm.started
+
+    def test_port_to_subroute_stops_listener(self):
+        conn = db._conn()
+        conn.execute("INSERT INTO sources (id,name,slug,parser_id,enabled) VALUES (77,'g','grp',1,1)")
+        conn.execute("INSERT INTO sources (id,name,slug,port,parser_id,enabled) "
+                     "VALUES (10,'s','s10',9100,1,1)")
+        conn.commit()
+        sm = _FakeSM()
+        # 变子路由：设 parent_id + path（即便没清 port，new_port_mode 也为 False）
+        r = self._client(sm).put("/api/sources/10",
+                                 data=json.dumps({"parent_id": 77, "path": "p10"}),
+                                 content_type="application/json")
+        assert r.status_code == 200, r.data[:200]
+        assert sm.stopped == [10], "离开端口模式应 stop: %s" % sm.stopped
+        assert sm.started == [], "进入子路由不应起独立监听: %s" % sm.started
+
+    def test_new_and_old_listener_both_fail_reports_not_listening(self):
+        conn = db._conn()
+        conn.execute("INSERT INTO sources (id,name,slug,port,parser_id,enabled) "
+                     "VALUES (10,'s','s10',9100,1,1)")
+        conn.commit()
+        sm = _FakeSM(bad_ports={9100, 9101})   # 新端口和旧端口都起不来
+        r = self._client(sm).put("/api/sources/10", data=json.dumps({"port": 9101}),
+                                 content_type="application/json")
+        assert r.status_code == 500, r.data[:200]
+        assert "当前未监听" in json.loads(r.data).get("error", ""), r.data
+        assert db.get_source(10)["port"] == 9100, "旧配置应已回滚"
+
     # ── P1-3：改 path 撞同组重复 → 409，且不改动 ──
 
     def test_path_change_conflict_409(self):

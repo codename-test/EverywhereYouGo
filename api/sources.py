@@ -209,31 +209,53 @@ def api_update_source(sid):
             return jsonify({"error": "path already exists under this source"}), 409
 
     sm = current_app.source_mgr
-    is_port_mode = bool(old.get("port")) and not old.get("parent_id")
-    if sm and is_port_mode:
-        sm.stop_source(sid)
+    # 按"更新后的完整配置"定最终接入模式，比较新旧决定是否启停监听
+    new_port = patch.get("port", old.get("port"))
+    new_parent = patch.get("parent_id", old.get("parent_id"))
+    new_enabled = patch.get("enabled", old.get("enabled"))
+    old_port_mode = bool(old.get("port")) and not old.get("parent_id")
+    new_port_mode = bool(new_port) and not new_parent
+    # 只有影响监听的字段（模式/port/enabled）变化才启停；改名等不动监听
+    listener_relevant = (old_port_mode != new_port_mode
+                         or old.get("port") != new_port
+                         or old.get("enabled") != new_enabled)
 
-    # 更新：撞唯一索引（slug/port/(parent_id,path)）→ 恢复旧监听 + 409
+    # 更新：撞唯一索引（slug/port/(parent_id,path)）→ 409（DB 未改，监听原样保留）
     try:
         db.update_source(sid, **patch)
     except sqlite3.IntegrityError as e:
-        if sm and is_port_mode:
-            sm.start_source(sid)   # DB 未改，旧配置仍在 → 重启旧监听
         log.logger.error(f"[sources PUT] integrity error on update {sid}: {e}")
         return jsonify({"error": "conflict: slug/port/sub-route path already exists"}), 409
 
-    # P1-1：端口模式重启监听；失败则回滚旧配置 + 重启旧监听（保留的必须可用）
-    if sm and is_port_mode and data.get("enabled", old["enabled"]):
-        started, err = sm.start_source(sid)
-        if not started and err:
-            old_patch = {k: old.get(k) for k in
-                         ("name", "port", "parser_id", "enabled", "slug", "parent_id", "path")}
-            db.update_source(sid, **old_patch)
-            sm.start_source(sid)
-            import config_manager
-            config_manager.sync_table("sources")
-            log.logger.error(f"[sources PUT] listener failed, restored old config for {sid}: {err}")
-            return jsonify({"error": "listener failed to start: %s" % err}), 500
+    # 监听器启停：按新旧模式 + 影响监听的字段变化决定（留下的必须可用）
+    if sm and listener_relevant:
+        was_listening = old_port_mode and bool(old.get("enabled"))
+        need_listening = new_port_mode and bool(new_enabled)
+        if was_listening:
+            sm.stop_source(sid)
+        if need_listening:
+            started, err = sm.start_source(sid)
+            if not started and err:
+                # 回滚旧配置
+                old_patch = {k: old.get(k) for k in
+                             ("name", "port", "parser_id", "enabled", "slug", "parent_id", "path")}
+                db.update_source(sid, **old_patch)
+                # 尝试恢复旧监听（旧配置是端口模式且启用才需要）
+                old_restore_err = None
+                if old_port_mode and bool(old.get("enabled")):
+                    r_ok, r_err = sm.start_source(sid)
+                    if not r_ok and r_err:
+                        old_restore_err = r_err
+                import config_manager
+                config_manager.sync_table("sources")
+                if old_restore_err:
+                    log.logger.error(
+                        f"[sources PUT] source {sid}: 新监听失败({err}) 且旧监听恢复也失败"
+                        f"({old_restore_err})，该 Source 当前未监听")
+                    return jsonify({"error": "listener failed to start: %s；旧监听恢复失败：%s；"
+                                             "该 Source 当前未监听" % (err, old_restore_err)}), 500
+                log.logger.error(f"[sources PUT] listener failed, restored old config for {sid}: {err}")
+                return jsonify({"error": "listener failed to start: %s（已回滚为旧配置）" % err}), 500
 
     import config_manager
     config_manager.sync_table("sources")
