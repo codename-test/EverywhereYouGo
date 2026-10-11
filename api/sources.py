@@ -200,6 +200,18 @@ def api_update_source(sid):
     if "path" in data:
         patch["path"] = optional_str(data, "path", max_len=200, default="") or ""
 
+    # 接入模式字段约束：切换模式时清理不再适用的字段（避免"幽灵端口"占着唯一索引）
+    #   子路由(parent 有效)→port=NULL；独立端口/顶层组→path=""；顶层组→port=NULL
+    eff_parent = patch.get("parent_id", old.get("parent_id"))
+    eff_port = patch.get("port", old.get("port"))
+    if eff_parent:
+        patch["port"] = None
+    elif eff_port:
+        patch["path"] = ""
+    else:
+        patch["port"] = None
+        patch["path"] = ""
+
     # P1-3：改 parent_id/path 前查子路由 path 冲突（排除自身）→ 409
     new_parent = patch.get("parent_id", old.get("parent_id"))
     new_path = patch.get("path", old.get("path"))

@@ -125,6 +125,23 @@ class TestSourceUpdate:
         assert sm.stopped == [10], "离开端口模式应 stop: %s" % sm.stopped
         assert sm.started == [], "进入子路由不应起独立监听: %s" % sm.started
 
+    def test_port_to_subroute_clears_port_and_frees_it(self):
+        conn = db._conn()
+        conn.execute("INSERT INTO sources (id,name,slug,parser_id,enabled) VALUES (77,'g','grp',1,1)")
+        conn.execute("INSERT INTO sources (id,name,slug,port,parser_id,enabled) "
+                     "VALUES (10,'s','s10',9100,1,1)")
+        conn.commit()
+        client = self._client(_FakeSM())
+        r = client.put("/api/sources/10", data=json.dumps({"parent_id": 77, "path": "p10"}),
+                       content_type="application/json")
+        assert r.status_code == 200, r.data[:200]
+        assert db.get_source(10)["port"] is None, "转子路由应清空 port"
+        # 旧端口 9100 已从唯一索引释放，可被新源占用
+        r2 = client.post("/api/sources/full",
+                         data=json.dumps({"name": "new", "port": 9100, "parser_id": 1}),
+                         content_type="application/json")
+        assert r2.status_code == 201, r2.data[:200]
+
     def test_new_and_old_listener_both_fail_reports_not_listening(self):
         conn = db._conn()
         conn.execute("INSERT INTO sources (id,name,slug,port,parser_id,enabled) "

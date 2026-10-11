@@ -318,14 +318,17 @@ class ListenerManager:
             thread.start()
             self._threads[source_id] = thread
             log.logger.info(f"Source [{src['name']}] listening on port {src['port']}")
-
-            # 触发 source.started 事件
-            bus.emit(bus.source_started, source_id=source_id)
-            return (True, None)
         except Exception as e:
             log.logger.error(f"Failed to start source {source_id}: {e}")
             self._cleanup_partial(source_id, server, ready)
             return (False, str(e))
+
+        # 监听已成功启动：事件通知失败只记录，不把可用监听器拖进失败清理路径
+        try:
+            bus.emit(bus.source_started, source_id=source_id)
+        except Exception as ee:
+            log.logger.warning(f"source_started event failed for {source_id}: {ee}")
+        return (True, None)
 
     def _cleanup_partial(self, source_id, server, ready):
         """start_source 失败时清理本次部分初始化的资源，避免 _servers/_threads 泄漏或 socket 占用。
