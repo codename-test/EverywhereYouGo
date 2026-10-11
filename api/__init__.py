@@ -121,8 +121,18 @@ def create_app(source_mgr=None):
 
     @app.before_request
     def _query_only_guard():
-        """查询类 API 模式：/api/ 下只允许 GET/HEAD；操作类默认屏蔽，仅白名单写端点放行。
-        webhook 接收器在 /<prefix>/ 下，不受影响。"""
+        """查询类 API 模式：仅约束**外部 Bearer token 调用方**——/api/ 下只允许
+        GET/HEAD，操作类默认屏蔽，仅白名单写端点放行。
+
+        以下情况直接放行（不启用 guard）：
+          - 未配置 EGO_AUTH_TOKEN：不存在外部 token 调用方，guard 无意义；
+          - session 已登录：WebUI 用户，需要完整增删改。
+        webhook 接收器在 /<prefix>/ 下、登录在 /login，均不在 /api/ 下，本就不受影响。
+        """
+        if not AUTH_TOKEN:
+            return
+        if session.get("authenticated"):
+            return
         if request.path.startswith("/api/") and request.method not in ("GET", "HEAD"):
             if request.path in _WRITE_ALLOWLIST:
                 return

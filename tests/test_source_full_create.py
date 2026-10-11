@@ -123,8 +123,11 @@ class TestSourceFullCreate:
         finally:
             db._conn = lambda: real
         assert r.status_code == 201, r.data[:200]
-        assert calls == [("execute", "sources"), ("execute", "source_channels"),
-                         ("execute", "source_channels"), ("commit", None)], calls
+        # 写事务：1 次源插入 + 2 次绑定插入 + 恰好 1 次 commit，commit 紧跟绑定之后
+        assert calls[:4] == [("execute", "sources"), ("execute", "source_channels"),
+                             ("execute", "source_channels"), ("commit", None)], calls
+        # 之后只有 config_manager.sync_table 的只读 SELECT，绝不能再有第二次 commit（否则不是单事务）
+        assert not any(c[0] == "commit" for c in calls[4:]), calls
 
     # ── 入参校验（400） ──
 
@@ -189,7 +192,23 @@ class TestSourceFullCreate:
         conn.commit()
         r = self._post({"name": "new", "port": 9101, "parser_id": 1})
         assert r.status_code == 409, r.data[:200]
-        assert _err(r).get("error") == i18n._("err.port_in_use"), _err(r)
+        # i18n._() 需要请求上下文（读 session 语言）；用 test_request_context 复现视图默认语言 zh
+        with self.client.application.test_request_context():
+            expected = i18n._("err.port_in_use")
+        assert _err(r).get("error") == expected, _err(r)
+
+    def test_subroute_path_conflict_409(self):
+        """同一组下 path 重复（nginx 路径 /<prefix>/<slug>/<path> 最后一段）→ 409。"""
+        conn = db._conn()
+        conn.execute("INSERT INTO sources (id,name,slug,parser_id,enabled) "
+                     "VALUES (77,'group','grp',1,1)")
+        conn.execute("INSERT INTO sources (id,name,slug,parent_id,path,parser_id,enabled) "
+                     "VALUES (78,'sub','sub-1',77,'movies',1,1)")
+        conn.commit()
+        r = self._post({"name": "new-sub", "parser_id": 1, "parent_id": 77, "path": "movies"})
+        assert r.status_code == 409, r.data[:200]
+        assert _err(r).get("error") == "path already exists under this source", _err(r)
+        assert db.get_sub_route_by_path(77, "movies")["id"] == 78, "既有子路由不能被重复/覆盖"
 
     def test_integrity_error_fallback_409_and_rollback(self):
         """绕过预检查，让唯一索引（db/schema.py:250-252）真正触发 IntegrityError。"""

@@ -245,16 +245,19 @@ def api_rate_limit_set(channel_id):
 
 @system_bp.route("/api/config", methods=["GET"])
 def api_config():
-    """一次性返回完整配置快照：解析器 / 模板 / 通道 / 来源。
+    """一次性返回配置快照：解析器 / 模板 / 通道 / 来源。
 
     sources 为顶层 Source 组（parent_id IS NULL），每个组内嵌其子路由 sub_routes；
     每个来源与子路由都带 parser_name（解析器名，解析器缺失时为 None）
     和 bindings（该来源的 source_channels 绑定，按 priority 排序）。
+
+    数据隔离：channels 只返回 id/name/type/enabled/created_at，**不含 config**
+    （config 里是 token / webhook 等鉴权信息，绝不对外）。其余组件给全量。
     纯读操作，不改表结构、不改鉴权。
     """
     parsers = db.get_parsers()
     templates = db.get_templates()
-    channels = db.get_channels()
+    channels = db.get_channels_brief()
 
     parser_name_by_id = {p["id"]: p.get("name") for p in parsers}
 

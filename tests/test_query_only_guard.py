@@ -1,16 +1,19 @@
 # tests/test_query_only_guard.py
 """查询类 API 模式（api/__init__.py 的 _query_only_guard）行为测试。
 
-覆盖：
-  - /api/ 下 POST/PUT/DELETE/PATCH 一律 403；
+guard 只约束**外部 Bearer token 调用方**（C 方案）：
+  - 带 Bearer token 时，/api/ 下 POST/PUT/DELETE/PATCH 一律 403；
   - GET/HEAD 不受 guard 影响；
   - 写端点白名单只精确匹配 /api/sources/full；
   - guard 在视图函数之前短路（不会走到入参校验）；
   - 非 /api/ 路径（登录、webhook 前缀）不受 guard 影响；
   - 认证中间件先于 guard 注册：未登录的写请求是 401 而不是 403。
 
-这些断言只依赖 api/__init__.py 中已实现的逻辑，不依赖尚未落地的
-GET /api/config 与 POST /api/sources/full 视图（后者仅断言"不是 403"）。
+放行（不启用 guard）：
+  - session 已登录（WebUI 用户）：写请求放行，不是 403；
+  - 未配置 EGO_AUTH_TOKEN：guard 整体不生效。
+
+每个测试用独立 test_client，避免 /login 测试把 session 泄漏给后续用例。
 """
 import os
 import sys
@@ -45,7 +48,11 @@ class TestQueryOnlyGuard:
         import db
         db.init_db()
         from api import create_app
-        cls.client = create_app().test_client()
+        cls.app = create_app()
+
+    def setup_method(self):
+        # 每个测试用全新 client，避免 /login 测试把 session 泄漏给后续测试
+        self.client = self.app.test_client()
 
     def _post(self, url, payload=None, headers=None):
         h = dict(AUTH_HEADER)
@@ -140,13 +147,30 @@ class TestQueryOnlyGuard:
         assert r.status_code == 401, r.data[:200]
         assert _err_body(r).get("error") != GUARD_ERROR, _err_body(r)
 
-    def test_session_login_also_satisfies_guard_path(self):
-        """登录后写请求仍被 guard 屏蔽（403），说明 401/403 是两条独立判定。"""
+    def test_session_login_bypasses_guard(self):
+        """WebUI 走 session 登录：guard 只锁外部 Bearer token，session 写请求放行（不是 403）。"""
         c = self.client
-        c.post("/login", data={"token": TEST_TOKEN})
+        login = c.post("/login", data={"token": TEST_TOKEN})
+        assert login.status_code in (200, 302), login.data[:200]
         r = c.post("/api/settings", data=json.dumps({}), content_type="application/json")
-        assert r.status_code == 403, r.data[:200]
+        assert r.status_code != 403, r.data[:200]
+        assert _err_body(r).get("error") != GUARD_ERROR, _err_body(r)
 
     @classmethod
     def teardown_class(cls):
         shutil.rmtree(_test_db_dir, ignore_errors=True)
+
+
+
+def test_guard_inactive_without_auth_token():
+    """未配置 EGO_AUTH_TOKEN 时 guard 整体不生效：即便未登录，/api/ 写请求也不应 403。"""
+    old = os.environ.pop("EGO_AUTH_TOKEN", None)
+    try:
+        from api import create_app
+        c = create_app().test_client()
+        r = c.post("/api/settings", data=json.dumps({}), content_type="application/json")
+        assert r.status_code != 403, r.data[:200]
+        assert _err_body(r).get("error") != GUARD_ERROR, _err_body(r)
+    finally:
+        if old is not None:
+            os.environ["EGO_AUTH_TOKEN"] = old

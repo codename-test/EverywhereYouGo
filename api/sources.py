@@ -39,14 +39,19 @@ def api_sources():
 def api_create_source():
     data = request.json or {}
     port = optional_port(data)
+    parent_id = optional_int(data, "parent_id", 1, default=None)
+    path = optional_str(data, "path", max_len=200, default="") or ""
+    # 子路由：同一组下 path（nginx 路径最后一段）不能重复
+    if parent_id and path and db.get_sub_route_by_path(parent_id, path):
+        return jsonify({"error": "path already exists under this source"}), 409
     sid = db.create_source(
         name=require_name(data),
         port=port,
         parser_id=optional_int(data, "parser_id", 1, default=None),
         enabled=optional_flag(data, "enabled", default=1),
         slug=optional_slug(data),
-        parent_id=optional_int(data, "parent_id", 1, default=None),
-        path=optional_str(data, "path", max_len=200, default="") or "",
+        parent_id=parent_id,
+        path=path,
     )
     if sid is None:
         return jsonify({"error": i18n._("err.port_in_use")}), 400
@@ -113,6 +118,9 @@ def api_create_source_full():
         return jsonify({"error": "slug already exists"}), 409
     if port and db.get_source_by_port(port):
         return jsonify({"error": i18n._("err.port_in_use")}), 409
+    # 子路由：同一组下 path（nginx 路径 /<prefix>/<slug>/<path> 的最后一段）不能重复
+    if parent_id and path and db.get_sub_route_by_path(parent_id, path):
+        return jsonify({"error": "path already exists under this source"}), 409
 
     conn = db._conn()
     try:

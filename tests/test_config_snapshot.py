@@ -8,7 +8,9 @@
   - parser_name 由 parser_name_by_id.get(...) 得出，解析器缺失时为 None
     （注意：/api/sources 用的是 "-"，两者不同，不能混为一谈）；
   - bindings 按 priority 排序（db/queries.py:354-358）；
-  - sub_routes 来自 db.get_sub_routes(group_id)，无子路由时为空列表。
+  - sub_routes 来自 db.get_sub_routes(group_id)，无子路由时为空列表；
+  - 数据隔离：channels 只含 id/name/type/enabled/created_at，**不含 config**
+    （config 里是 token / webhook 等鉴权信息，绝不对外，见 db.get_channels_brief）。
 """
 import os
 import sys
@@ -71,6 +73,18 @@ class TestConfigSnapshot:
         assert [t["id"] for t in d["templates"]] == [3]
         assert [c["id"] for c in d["channels"]] == [5]
 
+    def test_channels_exclude_config(self):
+        """数据隔离：channels 绝不返回 config（含 token / webhook 鉴权信息）。"""
+        conn = db._conn()
+        conn.execute("INSERT INTO channels (id,name,type,config,enabled) "
+                     "VALUES (5,'c5','wechat_work_bot','{\"token\":\"SECRET\"}',1)")
+        conn.commit()
+        d = self._get()
+        c = d["channels"][0]
+        assert "config" not in c, "channel 不应包含 config：%s" % c
+        assert c["id"] == 5 and c["name"] == "c5" and c["type"] == "wechat_work_bot"
+        assert c["enabled"] == 1
+
     def test_sources_only_top_level_groups(self):
         conn = db._conn()
         conn.execute("INSERT INTO sources (id,name,parser_id,enabled) VALUES (10,'group',7,1)")
@@ -88,8 +102,8 @@ class TestConfigSnapshot:
         conn = db._conn()
         conn.execute("INSERT INTO parsers (id,name,filename) VALUES (7,'p7','p7.py')")
         conn.execute("INSERT INTO sources (id,name,parser_id,enabled) VALUES (10,'group',7,1)")
-        conn.execute("INSERT INTO sources (id,name,slug,parent_id,enabled) "
-                     "VALUES (11,'sub',7,10,1)")
+        conn.execute("INSERT INTO sources (id,name,slug,parent_id,parser_id,enabled) "
+                     "VALUES (11,'sub','sub-slug',10,7,1)")
         conn.commit()
 
         d = self._get()
